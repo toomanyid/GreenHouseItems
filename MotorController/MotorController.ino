@@ -126,7 +126,7 @@ void loop() {
   if (button_push.isPressed()) {
     motor.stop();
   } else if (button_cw.isPressed()) {
-    motor.runCW(50);
+    motor.runCW(100);
   } else if (button_ccw.isPressed()) {
     motor.runCCW(50);
   } else {
