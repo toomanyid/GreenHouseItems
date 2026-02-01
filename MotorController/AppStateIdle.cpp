@@ -86,28 +86,25 @@ void AppStateIdle::onUpdate() {
   }
   
   
-  // 디스플레이: 모터 현재위치만 (화면 꽉 참)
+  // 디스플레이: 로터리 회전 시 목표값, 아니면 현재위치 (숫자만)
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
-  posSec = motor.getPositionSec();
-  float readySec = MotorPositionConfigManager::getInstance().ready;
-  float range = maxSec - readySec;
-  float pct = (range != 0) ? ((posSec - readySec) / range * 100.0f) : 0;
   
-  // 128x64: "Position" size2(8*12=96) + "xx.x%" size4(6*24=144→size3: 6*18=108)
-  display.setTextSize(2);
-  display.setCursor(0, 0);
-  display.println("Position");
+  float val;  // 표시할 값 (초)
+  if ((now - lastEncoderChangeMs) < IDLE_RUN_DELAY_MS) {
+    val = MotorPositionConfigManager::getInstance().target;  // 로터리 회전 시 목표값
+  } else {
+    val = motor.getPositionSec();  // 현재위치
+  }
   
-  // 값은 size 4로 크게 (5~7자: 24px/자, 128/24≈5자) → size 3 사용 (18px/자)
   char buf[12];
-  snprintf(buf, sizeof(buf), "%.1f%%", pct);
+  snprintf(buf, sizeof(buf), "%.1f", val);
   int len = strlen(buf);
   int charW = 18;  // size 3
   int totalW = len * charW;
   int x = (128 - totalW) / 2;
   display.setTextSize(3);
-  display.setCursor(x, 24);
+  display.setCursor(x, 20);
   display.print(buf);
   display.display();
 }
