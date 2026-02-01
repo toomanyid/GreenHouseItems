@@ -2,15 +2,23 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-MotorDriver::MotorDriver(int enablePin, int pwmCwPin, int pwmCcwPin)
-  : enablePin(enablePin), pwmCwPin(pwmCwPin), pwmCcwPin(pwmCcwPin),
+MotorDriver::MotorDriver()
+  : enablePin(0), pwmCwPin(0), pwmCcwPin(0),
     targetSpeed(0), currentActualSpeed(0), currentCmd(MOTOR_CMD_STOP), 
     lastCmd(MOTOR_CMD_STOP), running(false), taskRunning(false),
     softStartActive(false), softStartStartTime(0), softStartDuration(1000),
     positionMs(0), lastPositionUpdateMs(0) {
 }
 
-void MotorDriver::init() {
+MotorDriver& MotorDriver::getInstance() {
+  static MotorDriver instance;
+  return instance;
+}
+
+void MotorDriver::init(int enPin, int cwPin, int ccwPin) {
+  enablePin = enPin;
+  pwmCwPin = cwPin;
+  pwmCcwPin = ccwPin;
   pinMode(enablePin, OUTPUT);
   pinMode(pwmCwPin, OUTPUT);
   pinMode(pwmCcwPin, OUTPUT);

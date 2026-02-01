@@ -5,11 +5,17 @@ static const float ADC_MAX = 4095.0f;
 static const float VREF = 3.3f;
 static const float NOISE_THRESHOLD = 0.1f;  // A 이하는 0으로 처리
 
-CurrentSensor::CurrentSensor(int adcPin)
-  : pin(adcPin), zeroCurrentVoltage(1.65f), sensitivity(0.040f) {
+CurrentSensor::CurrentSensor()
+  : pin(0), zeroCurrentVoltage(1.65f), sensitivity(0.040f) {
 }
 
-void CurrentSensor::init() {
+CurrentSensor& CurrentSensor::getInstance() {
+  static CurrentSensor instance;
+  return instance;
+}
+
+void CurrentSensor::init(int adcPin) {
+  pin = adcPin;
   pinMode(pin, INPUT);
 }
 

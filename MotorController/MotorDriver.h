@@ -10,7 +10,7 @@ enum MotorCommand {
   MOTOR_CMD_RUN_CCW
 };
 
-// 모터 제어 클래스 (FreeRTOS 태스크로 동작)
+// 모터 제어 클래스 (FreeRTOS 태스크로 동작) - 싱글톤
 class MotorDriver {
 private:
   int enablePin;
@@ -38,10 +38,14 @@ private:
   void setPWM(int cwValue, int ccwValue);
   void updateSoftStart();
   
-public:
-  MotorDriver(int enablePin, int pwmCwPin, int pwmCcwPin);
+  MotorDriver();  // private 생성자
+  MotorDriver(const MotorDriver&) = delete;
+  void operator=(const MotorDriver&) = delete;
   
-  void init();
+public:
+  static MotorDriver& getInstance();
+  
+  void init(int enablePin, int pwmCwPin, int pwmCcwPin);
   void runCW(uint8_t speed);   // 시계방향, speed: 0-100
   void runCCW(uint8_t speed);  // 반시계방향, speed: 0-100
   void runCW() { runCW(100); }   // 시계방향, speed: 100

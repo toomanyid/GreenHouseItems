@@ -5,6 +5,10 @@
 #include "MotorDriver.h"
 #include "CurrentSensor.h"
 #include "Button.h"
+#include "AppState.h"
+#include "AppStateIdle.h"
+#include "AppStateSetup.h"
+#include "MotorPositionConfig.h"
 
 // SH1116 OLED 핀 정의 (XIAO ESP32C6)
 #define OLED_SDA 22      // D4 (I2C SDA)
@@ -39,16 +43,17 @@ Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 // 로터리 엔코더 객체
 RotaryEncoder encoder;
 
-// 모터 제어 객체 (별도 FreeRTOS 태스크로 동작)
-MotorDriver motor(MOTOR_ENABLE, MOTOR_PWM_CW, MOTOR_PWM_CCW);
-
-// 전류 센서 객체 (ACS758-50A)
-CurrentSensor currentSensor(CURRENT_SENSOR_PIN);
+// 싱글톤 참조 (setup에서 init 호출 전에 사용 가능)
+MotorDriver& motor = MotorDriver::getInstance();
+CurrentSensor& currentSensor = CurrentSensor::getInstance();
 
 // 버튼 객체 (PUSH, CW, CCW)
 Button button_push(BUTTON_PUSH_PIN, "PUSH");
 Button button_cw(BUTTON_CW_PIN, "CW");
 Button button_ccw(BUTTON_CCW_PIN, "CCW");
+
+// 상태 패턴 컨텍스트
+AppStateContext appStateContext;
 
 // 엔코더 디스플레이용 변수
 int lastEncoderValue = 0;
@@ -58,6 +63,13 @@ void setup() {
   delay(1000);
   
   Serial.println("시스템 초기화 중...");
+
+  // 모터 위치 설정 로드 (플래시)
+  if (MotorPositionConfigManager::load()) {
+    Serial.println("위치 설정 로드 완료!");
+  } else {
+    Serial.println("위치 설정 기본값 사용");
+  }
 
   // 버튼 초기화
   button_push.init();
@@ -70,11 +82,11 @@ void setup() {
   Serial.println("로터리 엔코더 초기화 완료!");
   
   // 모터 제어 초기화 (별도 스레드로 동작)
-  motor.init();
+  motor.init(MOTOR_ENABLE, MOTOR_PWM_CW, MOTOR_PWM_CCW);
   Serial.println("모터 제어 초기화 완료!");
   
   // 전류 센서 초기화 (ACS758-50A)
-  currentSensor.init();
+  currentSensor.init(CURRENT_SENSOR_PIN);
   currentSensor.calibrate();
   Serial.println("전류 센서 초기화 완료!");
   
@@ -110,86 +122,12 @@ void setup() {
   display.println("테스트 중...");
   display.display();
   
-  Serial.println("초기화 완료!");
+  // Idle 상태로 시작
+  appStateContext.setState(&AppStateIdle::getInstance());
+  Serial.println("초기화 완료! State: Idle");
 }
 
 void loop() {
-  // 버튼 읽기 및 토글 처리
-  button_push.update();
-  button_cw.update();
-  button_ccw.update();
-  
-  // 엔코더 값 읽기
-  int currentValue = encoder.getValue();
-  
-  // 버튼에 따른 모터 제어 (button_push: 정지, button_cw: 시계방향, button_ccw: 반시계방향)
-  if (button_push.isPressed()) {
-    motor.stop();
-  } else if (button_cw.isPressed()) {
-    motor.runCW(100);
-  } else if (button_ccw.isPressed()) {
-    motor.runCCW(50);
-  } else {
-    motor.stop();
-  }
-  
-  // 값이 변경되었는지 확인
-  if (currentValue != lastEncoderValue) {
-    lastEncoderValue = currentValue;
-    Serial.print("엔코더 값: ");
-    Serial.println(currentValue);
-  }
-  
-  // 전류 센서 읽기 (10회 중 첫 회 버리고 9회 평균)
-  float current = currentSensor.getCurrent();
-  
-  // 디스플레이 클리어
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  
-  // 현재 시간 표시
-  display.setTextSize(1);
-  display.println("= Motor controller  =");
-  display.println("");
-  display.print("Time: ");
-  display.print(millis() / 1000);
-  display.println("Sec");
-  
-  // 엔코더 값 표시
-  display.print("Encoder: ");
-  display.println(currentValue);
-  
-  // 모터 상태 표시
-  display.print("Motor: ");
-  if (motor.isRunning()) {
-    display.print("RUN ");
-    display.print(motor.getActualSpeed());
-    display.print("%");
-  } else {
-    display.print("STOP");
-  }
-  display.println("");
-  
-  // 모터 위치 (동작시간 기준): CW +, CCW -
-  display.print("Pos: ");
-  display.print(motor.getPositionSec(), 1);
-  display.println("s");
-  
-  // 전류 센서 값 표시
-  display.print("Current: ");
-  display.print(current, 2);
-  display.println("A");
-  
-  // 버튼 상태 표시 (토글) - button_push, button_cw, button_ccw
-  display.print("PUSH:");
-  display.print(button_push.isPressed() ? "o" : "x");
-  display.print(" CW:");
-  display.print(button_cw.isPressed() ? "o" : "x");
-  display.print(" CCW:");
-  display.println(button_ccw.isPressed() ? "o" : "x");
-  
-  // 디스플레이 업데이트
-  display.display();
-  
-  delay(50); // 50ms마다 업데이트 (더 부드러운 표시)
+  appStateContext.update();
+  delay(50);  // 50ms마다 업데이트
 }
