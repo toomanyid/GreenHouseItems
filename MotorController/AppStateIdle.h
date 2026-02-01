@@ -13,7 +13,8 @@ public:
   static AppStateIdle& getInstance();
   
 private:
-  AppStateIdle() {}
+  unsigned long lastEncoderChangeMs;
+  AppStateIdle() : lastEncoderChangeMs(0) {}
   AppStateIdle(const AppStateIdle&) = delete;
   void operator=(const AppStateIdle&) = delete;
 };

@@ -10,9 +10,10 @@ struct MotorPositionConfig {
   float ready;    // 준비 위치
   float top;      // 모터 상한
   float max;      // 동작가능 최대
+  float target;   // Run 목표위치 (런타임, 저장 안 함)
   
   MotorPositionConfig()
-    : bottom(0), ready(5), top(10), max(15) {}
+    : bottom(0), ready(5), top(10), max(15), target(0) {}
   
   float* getField(int index) {
     switch (index) {

@@ -37,9 +37,10 @@ void AppStateSetup::onUpdate() {
   button_cw.update();
   button_ccw.update();
   
-  // PUSH: 설정 저장 후 Idle로 복귀
+  // PUSH: 설정 저장 후 모터에 알리고 Idle로 복귀
   if (button_push.isPressed()) {
     MotorPositionConfigManager::save();
+    motor.setPositionLimits(0, MotorPositionConfigManager::getInstance().max);
     appStateContext.setState(&AppStateIdle::getInstance());
     return;
   }

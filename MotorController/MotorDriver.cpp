@@ -7,7 +7,8 @@ MotorDriver::MotorDriver()
     targetSpeed(0), currentActualSpeed(0), currentCmd(MOTOR_CMD_STOP), 
     lastCmd(MOTOR_CMD_STOP), running(false), taskRunning(false),
     softStartActive(false), softStartStartTime(0), softStartDuration(1000),
-    positionMs(0), lastPositionUpdateMs(0) {
+    positionMs(0), lastPositionUpdateMs(0),
+    minPositionMs(0), maxPositionMs(999000) {  // max 999초 기본
 }
 
 MotorDriver& MotorDriver::getInstance() {
@@ -65,6 +66,10 @@ void MotorDriver::taskLoop() {
     // Soft start 업데이트
     updateSoftStart();
     
+    // 0~max 범위 제한: 어떤 조건에서도 진행 불가 (setPositionLimits로 설정됨)
+    if (currentCmd == MOTOR_CMD_RUN_CW && positionMs >= maxPositionMs) currentCmd = MOTOR_CMD_STOP;
+    if (currentCmd == MOTOR_CMD_RUN_CCW && positionMs <= minPositionMs) currentCmd = MOTOR_CMD_STOP;
+    
     // 모터 제어
     switch (currentCmd) {
       case MOTOR_CMD_STOP:
@@ -86,6 +91,7 @@ void MotorDriver::taskLoop() {
         running = true;
         // 속도 보정: 같은 시간이라도 속도에 비례한 위치 (100% 기준 동등 시간)
         positionMs += (int32_t)(elapsed * currentActualSpeed / 100);
+        if (positionMs > maxPositionMs) positionMs = maxPositionMs;
         break;
         
       case MOTOR_CMD_RUN_CCW:
@@ -98,6 +104,7 @@ void MotorDriver::taskLoop() {
         running = true;
         // 속도 보정: 같은 시간이라도 속도에 비례한 위치 (100% 기준 동등 시간)
         positionMs -= (int32_t)(elapsed * currentActualSpeed / 100);
+        if (positionMs < minPositionMs) positionMs = minPositionMs;
         break;
     }
     
@@ -170,4 +177,9 @@ float MotorDriver::getPositionSec() {
 
 void MotorDriver::resetPosition() {
   positionMs = 0;
+}
+
+void MotorDriver::setPositionLimits(float minSec, float maxSec) {
+  minPositionMs = (int32_t)(minSec * 1000.0f);
+  maxPositionMs = (int32_t)(maxSec * 1000.0f);
 }

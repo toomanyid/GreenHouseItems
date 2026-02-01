@@ -33,6 +33,10 @@ private:
   volatile int32_t positionMs;
   unsigned long lastPositionUpdateMs;
   
+  // 위치 한계 (외부에서 설정 변경 시 알림으로 업데이트)
+  int32_t minPositionMs;
+  int32_t maxPositionMs;
+  
   static void taskFunction(void* param);
   void taskLoop();
   void setPWM(int cwValue, int ccwValue);
@@ -61,6 +65,9 @@ public:
   int32_t getPositionMs();   // 동등 밀리초
   float getPositionSec();    // 동등 초
   void resetPosition();      // 위치 0으로 리셋
+  
+  // 위치 한계 설정 (설정 변경 시 호출하여 알림)
+  void setPositionLimits(float minSec, float maxSec);
 };
 
 #endif

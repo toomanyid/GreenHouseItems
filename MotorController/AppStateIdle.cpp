@@ -1,8 +1,11 @@
 #include "AppStateIdle.h"
 #include "AppState.h"
+#include <stdio.h>
+#include <string.h>
 #include "AppStateSetup.h"
+#include "AppStateRun.h"
 #include "MotorDriver.h"
-#include "CurrentSensor.h"
+#include "MotorPositionConfig.h"
 #include "Button.h"
 #include "RotaryEncoder.h"
 #include <Adafruit_GFX.h>
@@ -12,7 +15,6 @@
 extern Adafruit_SH1106G display;
 extern RotaryEncoder encoder;
 extern MotorDriver& motor;
-extern CurrentSensor& currentSensor;
 extern Button button_push;
 extern Button button_cw;
 extern Button button_ccw;
@@ -24,8 +26,13 @@ AppStateIdle& AppStateIdle::getInstance() {
   return instance;
 }
 
+#define IDLE_RUN_DELAY_MS 2000   // 2초 대기 후 Run 전환
+#define IDLE_ENCODER_STEP 0.1f   // 엔코더 1클릭당 목표 변경 (초)
+
 void AppStateIdle::onEnter() {
   motor.stop();
+  lastEncoderValue = encoder.getValue();
+  lastEncoderChangeMs = millis();
   display.setTextSize(1);
   display.setTextColor(SH110X_WHITE);
 }
@@ -37,6 +44,27 @@ void AppStateIdle::onUpdate() {
   button_ccw.update();
   
   int currentValue = encoder.getValue();
+  unsigned long now = millis();
+  
+  // 로터리 회전: 목표값 변경, 2초 타이머 리셋
+  if (currentValue != lastEncoderValue) {
+    int delta = currentValue - lastEncoderValue;
+    float& target = MotorPositionConfigManager::getInstance().target;
+    target += delta * IDLE_ENCODER_STEP;
+    float maxSec = MotorPositionConfigManager::getInstance().max;
+    if (target < 0) target = 0;
+    if (target > maxSec) target = maxSec;
+    lastEncoderValue = currentValue;
+    lastEncoderChangeMs = now;
+  }
+  
+  // 2초 대기 후 Run 전환 (목표가 현재와 다를 때만)
+  float target = MotorPositionConfigManager::getInstance().target;
+  if ((now - lastEncoderChangeMs) >= IDLE_RUN_DELAY_MS &&
+      abs(target - motor.getPositionSec()) > 0.05f) {
+    appStateContext.setState(&AppStateRun::getInstance());
+    return;
+  }
   
   // PUSH: Setup 상태로 전환
   if (button_push.isPressed()) {
@@ -44,57 +72,42 @@ void AppStateIdle::onUpdate() {
     return;
   }
   
-  // 버튼에 따른 모터 제어
+  // 버튼에 따른 모터 제어 (0~max 범위 제한)
+  float posSec = motor.getPositionSec();
+  float maxSec = MotorPositionConfigManager::getInstance().max;
   if (button_cw.isPressed()) {
-    motor.runCW(100);
+    if (posSec < maxSec) motor.runCW(100);
+    else motor.stop();
   } else if (button_ccw.isPressed()) {
-    motor.runCCW(50);
+    if (posSec > 0) motor.runCCW(50);
+    else motor.stop();
   } else {
     motor.stop();
   }
   
   
-  if (currentValue != lastEncoderValue) {
-    lastEncoderValue = currentValue;
-    Serial.print("엔코더 값: ");
-    Serial.println(currentValue);
-  }
-  
-  float current = currentSensor.getCurrent();
-  
-  // 디스플레이
+  // 디스플레이: 모터 현재위치만 (화면 꽉 참)
   display.clearDisplay();
+  display.setTextColor(SH110X_WHITE);
+  posSec = motor.getPositionSec();
+  float readySec = MotorPositionConfigManager::getInstance().ready;
+  float range = maxSec - readySec;
+  float pct = (range != 0) ? ((posSec - readySec) / range * 100.0f) : 0;
+  
+  // 128x64: "Position" size2(8*12=96) + "xx.x%" size4(6*24=144→size3: 6*18=108)
+  display.setTextSize(2);
   display.setCursor(0, 0);
-  display.setTextSize(1);
-  display.println("= Motor controller  =");
-  display.println("");
-  display.print("State: ");
-  display.println(getName());
-  display.print("Time: ");
-  display.print(millis() / 1000);
-  display.println("Sec");
-  display.print("Encoder: ");
-  display.println(currentValue);
-  display.print("Motor: ");
-  if (motor.isRunning()) {
-    display.print("RUN ");
-    display.print(motor.getActualSpeed());
-    display.print("%");
-  } else {
-    display.print("STOP");
-  }
-  display.println("");
-  display.print("Pos: ");
-  display.print(motor.getPositionSec(), 1);
-  display.println("s");
-  display.print("Current: ");
-  display.print(current, 2);
-  display.println("A");
-  display.print("PUSH:");
-  display.print(button_push.isPressed() ? "o" : "x");
-  display.print(" CW:");
-  display.print(button_cw.isPressed() ? "o" : "x");
-  display.print(" CCW:");
-  display.println(button_ccw.isPressed() ? "o" : "x");
+  display.println("Position");
+  
+  // 값은 size 4로 크게 (5~7자: 24px/자, 128/24≈5자) → size 3 사용 (18px/자)
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%.1f%%", pct);
+  int len = strlen(buf);
+  int charW = 18;  // size 3
+  int totalW = len * charW;
+  int x = (128 - totalW) / 2;
+  display.setTextSize(3);
+  display.setCursor(x, 24);
+  display.print(buf);
   display.display();
 }

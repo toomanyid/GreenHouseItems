@@ -8,6 +8,7 @@
 #include "AppState.h"
 #include "AppStateIdle.h"
 #include "AppStateSetup.h"
+#include "AppStateRun.h"
 #include "MotorPositionConfig.h"
 
 // SH1116 OLED 핀 정의 (XIAO ESP32C6)
@@ -70,6 +71,8 @@ void setup() {
   } else {
     Serial.println("위치 설정 기본값 사용");
   }
+  // 설정 변경 알림: 모터 드라이버에 한계값 전달
+  motor.setPositionLimits(0, MotorPositionConfigManager::getInstance().max);
 
   // 버튼 초기화
   button_push.init();
@@ -122,7 +125,8 @@ void setup() {
   display.println("테스트 중...");
   display.display();
   
-  // Idle 상태로 시작
+  // Idle 상태로 시작, 초기 목표 = 현재 위치
+  MotorPositionConfigManager::getInstance().target = motor.getPositionSec();
   appStateContext.setState(&AppStateIdle::getInstance());
   Serial.println("초기화 완료! State: Idle");
 }
