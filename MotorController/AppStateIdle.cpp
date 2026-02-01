@@ -27,7 +27,7 @@ AppStateIdle& AppStateIdle::getInstance() {
 }
 
 #define IDLE_RUN_DELAY_MS 2000   // 2초 대기 후 Run 전환
-#define IDLE_ENCODER_STEP 0.1f   // 엔코더 1클릭당 목표 변경 (초)
+#define IDLE_ENCODER_STEP 1.0f   // 엔코더 1틱당 1초 증감
 
 void AppStateIdle::onEnter() {
   motor.stop();

@@ -72,21 +72,27 @@ void AppStateRun::onUpdate() {
     else motor.runCCW(50);
   }
   
-  // 디스플레이: Idle과 동일하게 현재위치만, 1초 단위 깜빡임
+  // 디스플레이: 현재위치 + 왼쪽위 RUN (RUN만 0.5초 깜빡임)
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
   
-  bool show = ((now / 500) % 2) == 0;   // 0.5초 on, 0.5초 off
-  if (show) {
-    char buf[12];
-    snprintf(buf, sizeof(buf), "%.1f", posSec);
-    int len = strlen(buf);
-    int charW = 18;  // size 3
-    int totalW = len * charW;
-    int x = (128 - totalW) / 2;
-    display.setTextSize(3);
-    display.setCursor(x, 20);
-    display.print(buf);
+  // 왼쪽위 RUN (0.5초 on, 0.5초 off)
+  bool runVisible = ((now / 500) % 2) == 0;
+  if (runVisible) {
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.print("RUN");
   }
+  
+  // 현재위치 (항상 표시, Idle과 동일)
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%.1f", posSec);
+  int len = strlen(buf);
+  int charW = 18;  // size 3
+  int totalW = len * charW;
+  int x = (128 - totalW) / 2;
+  display.setTextSize(3);
+  display.setCursor(x, 20);
+  display.print(buf);
   display.display();
 }

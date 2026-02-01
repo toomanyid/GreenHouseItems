@@ -47,41 +47,33 @@ void AppStateSetup::onUpdate() {
   
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
   
-  // 엔코더: 항목 선택
+  // CW/CCW: Up/Down - 항목 간 이동 (한 번만, 두 번씩 입력 방지)
+  if (button_cw.justPressed()) {
+    selectedIndex--;
+    if (selectedIndex < 0) selectedIndex = 0;
+  }
+  if (button_ccw.justPressed()) {
+    selectedIndex++;
+    if (selectedIndex >= MotorPositionConfig::FIELD_COUNT) selectedIndex = MotorPositionConfig::FIELD_COUNT - 1;
+  }
+  
+  // 로터리: 선택된 값 증감 (1초 단위)
   int encVal = encoder.getValue();
   if (encVal != lastEncoderValue) {
     int delta = encVal - lastEncoderValue;
-    selectedIndex += delta;
-    if (selectedIndex < 0) selectedIndex = 0;
-    if (selectedIndex >= MotorPositionConfig::FIELD_COUNT) selectedIndex = MotorPositionConfig::FIELD_COUNT - 1;
+    float* field = config.getField(selectedIndex);
+    if (field != nullptr) {
+      *field += delta * 1.0f;
+      if (*field < 0) *field = 0;
+    }
     lastEncoderValue = encVal;
   }
   
-  // CW/CCW: 선택된 값 증감 (0.1 단위)
-  float step = 0.1f;
-  if (button_cw.isPressed()) {
-    float* field = config.getField(selectedIndex);
-    if (field != nullptr) *field += step;
-  }
-  if (button_ccw.isPressed()) {
-    float* field = config.getField(selectedIndex);
-    if (field != nullptr) {
-      *field -= step;
-      if (*field < 0) *field = 0;
-    }
-  }
-  
-  // 디스플레이
+  // 디스플레이 (State, Pos 제거)
   display.clearDisplay();
   display.setCursor(0, 0);
   display.setTextSize(1);
-  display.println("= Setup  =");
-  display.println("");
-  display.print("State: ");
-  display.println(getName());
-  display.print("Pos: ");
-  display.print(motor.getPositionSec(), 1);
-  display.println("s");
+  display.println("= Setup =");
   display.println("");
   for (int i = 0; i < MotorPositionConfig::FIELD_COUNT; i++) {
     if (i == selectedIndex) display.print(">");
