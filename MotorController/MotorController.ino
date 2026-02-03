@@ -9,6 +9,7 @@
 #include "AppStateIdle.h"
 #include "AppStateSetup.h"
 #include "AppStateRun.h"
+#include "AppStateFault.h"
 #include "MotorPositionConfig.h"
 
 // SH1116 OLED 핀 정의 (XIAO ESP32C6)
