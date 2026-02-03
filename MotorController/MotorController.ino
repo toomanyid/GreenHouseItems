@@ -93,9 +93,10 @@ void setup() {
   motor.init(MOTOR_ENABLE, MOTOR_PWM_CW, MOTOR_PWM_CCW);
   Serial.println("모터 제어 초기화 완료!");
   
-  // 전류 센서 초기화 (ACS758-50A)
+  // 전류 센서 초기화 (ACS758-50A) - 캘리브 후 별도 스레드 시작
   currentSensor.init(CURRENT_SENSOR_PIN);
   currentSensor.calibrate();
+  currentSensor.startTask();
   Serial.println("전류 센서 초기화 완료!");
   
   // I2C 초기화

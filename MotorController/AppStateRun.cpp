@@ -1,8 +1,10 @@
 #include "AppStateRun.h"
 #include "AppState.h"
 #include "AppStateIdle.h"
+#include "AppStateFault.h"
 #include "MotorDriver.h"
 #include "MotorPositionConfig.h"
+#include "CurrentSensor.h"
 #include "Button.h"
 #include "RotaryEncoder.h"
 #include <Adafruit_GFX.h>
@@ -13,6 +15,7 @@
 extern Adafruit_SH1106G display;
 extern RotaryEncoder encoder;
 extern MotorDriver& motor;
+extern CurrentSensor& currentSensor;
 extern Button button_push;
 extern Button button_cw;
 extern Button button_ccw;
@@ -67,6 +70,14 @@ void AppStateRun::onUpdate() {
     return;
   }
   
+  // 전류 모니터링: maxCurrent 초과 시 Fault 전환
+  float currentA = currentSensor.getCurrent();
+  if (fabsf(currentA) > config.maxCurrent) {
+    motor.stop();
+    appStateContext.setState(&AppStateFault::getInstance());
+    return;
+  }
+  
   // 모터 구동
   {
     // 목표 도달 체크
@@ -92,11 +103,11 @@ void AppStateRun::onUpdate() {
   display.setTextSize(1);
   display.setCursor(0, 0);
   char leftBuf[16];
-  snprintf(leftBuf, sizeof(leftBuf), "->%.1f", pctTarget);
+  snprintf(leftBuf, sizeof(leftBuf), "->%.0f", pctTarget);
   display.print(leftBuf);
   
   char buf[12];
-  snprintf(buf, sizeof(buf), "%.1f", pctCurrent);
+  snprintf(buf, sizeof(buf), "%.0f", pctCurrent);
   int len = strlen(buf);
   int charW = 18;
   int totalW = len * charW;

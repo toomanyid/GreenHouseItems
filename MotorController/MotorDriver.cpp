@@ -30,14 +30,15 @@ void MotorDriver::init(int enPin, int cwPin, int ccwPin) {
   
   stop();
   
-  // FreeRTOS 태스크 생성
-  xTaskCreate(
+  // FreeRTOS 태스크 생성 (코어 0 명시 - ESP32-C6는 코어 0만 유효)
+  xTaskCreatePinnedToCore(
     taskFunction,
     "MotorTask",
     2048,
     this,
     1,
-    NULL
+    NULL,
+    0
   );
   taskRunning = true;
 }
