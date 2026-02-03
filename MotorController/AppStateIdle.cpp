@@ -46,20 +46,21 @@ void AppStateIdle::onUpdate() {
   int currentValue = encoder.getValue();
   unsigned long now = millis();
   
-  // 로터리 회전: 목표값 변경, 2초 타이머 리셋
+  // 로터리 회전: 목표값 변경, 2초 타이머 리셋 (top 이상 불가)
+  MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
+  float topSec = config.top;
   if (currentValue != lastEncoderValue) {
     int delta = currentValue - lastEncoderValue;
-    float& target = MotorPositionConfigManager::getInstance().target;
+    float& target = config.target;
     target += delta * IDLE_ENCODER_STEP;
-    float maxSec = MotorPositionConfigManager::getInstance().max;
     if (target < 0) target = 0;
-    if (target > maxSec) target = maxSec;
+    if (target > topSec) target = topSec;
     lastEncoderValue = currentValue;
     lastEncoderChangeMs = now;
   }
   
   // 2초 대기 후 Run 전환 (목표가 현재와 다를 때만)
-  float target = MotorPositionConfigManager::getInstance().target;
+  float target = config.target;
   if ((now - lastEncoderChangeMs) >= IDLE_RUN_DELAY_MS &&
       abs(target - motor.getPositionSec()) > 0.05f) {
     appStateContext.setState(&AppStateRun::getInstance());
@@ -72,35 +73,57 @@ void AppStateIdle::onUpdate() {
     return;
   }
   
-  // 버튼에 따른 모터 제어 (0~max 범위 제한)
-  float posSec = motor.getPositionSec();
-  float maxSec = MotorPositionConfigManager::getInstance().max;
-  if (button_cw.isPressed()) {
-    if (posSec < maxSec) motor.runCW(100);
-    else motor.stop();
-  } else if (button_ccw.isPressed()) {
-    if (posSec > 0) motor.runCCW(50);
-    else motor.stop();
-  } else {
-    motor.stop();
+  // UP/DOWN: 목표값만 변경 (로터리와 동일, top 이상 불가)
+  float& targetRef = config.target;
+  float positions[] = {config.bottom, config.ready, config.top, config.max};
+  
+  if (button_cw.justPressed()) {
+    float next = config.max + 1;
+    for (int i = 0; i < 4; i++) {
+      if (positions[i] > targetRef && positions[i] < next) next = positions[i];
+    }
+    if (next <= topSec) {
+      targetRef = next;
+      lastEncoderChangeMs = now;
+    }
+  } else if (button_ccw.justPressed()) {
+    float next = -1;
+    for (int i = 0; i < 4; i++) {
+      if (positions[i] < targetRef && positions[i] > next) next = positions[i];
+    }
+    if (next >= 0) {
+      targetRef = next;
+      lastEncoderChangeMs = now;
+    }
   }
   
+  // 표시용 % (ready=1%, top=100%, ready 미만=0%)
+  float readySec = config.ready;
+  float posSec = motor.getPositionSec();
+  float pctCurrent = MotorPositionConfig::positionToPercent(posSec, readySec, topSec);
+  float pctTarget  = MotorPositionConfig::positionToPercent(targetRef, readySec, topSec);
   
-  // 디스플레이: 로터리 회전 시 목표값, 아니면 현재위치 (숫자만)
+  // 디스플레이: 목표 변경 시 왼쪽위 "현재%->", 중앙은 목표% 또는 현재%
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
   
-  float val;  // 표시할 값 (초)
-  if ((now - lastEncoderChangeMs) < IDLE_RUN_DELAY_MS) {
-    val = MotorPositionConfigManager::getInstance().target;  // 로터리 회전 시 목표값
+  bool targetChanged = (now - lastEncoderChangeMs) < IDLE_RUN_DELAY_MS;
+  float displayPct;
+  if (targetChanged) {
+    displayPct = pctTarget;
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    char leftBuf[16];
+    snprintf(leftBuf, sizeof(leftBuf), "%.1f->", pctCurrent);
+    display.print(leftBuf);
   } else {
-    val = motor.getPositionSec();  // 현재위치
+    displayPct = pctCurrent;
   }
   
   char buf[12];
-  snprintf(buf, sizeof(buf), "%.1f", val);
+  snprintf(buf, sizeof(buf), "%.1f", displayPct);
   int len = strlen(buf);
-  int charW = 18;  // size 3
+  int charW = 18;
   int totalW = len * charW;
   int x = (128 - totalW) / 2;
   display.setTextSize(3);

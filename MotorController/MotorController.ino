@@ -59,6 +59,10 @@ AppStateContext appStateContext;
 // 엔코더 디스플레이용 변수
 int lastEncoderValue = 0;
 
+// 전류 로깅: 1초 간격
+unsigned long lastCurrentLogMs = 0;
+#define CURRENT_LOG_INTERVAL_MS 1000
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -72,7 +76,7 @@ void setup() {
     Serial.println("위치 설정 기본값 사용");
   }
   // 설정 변경 알림: 모터 드라이버에 한계값 전달
-  motor.setPositionLimits(0, MotorPositionConfigManager::getInstance().max);
+  motor.setPositionLimits(0, MotorPositionConfigManager::getInstance().top);
 
   // 버튼 초기화
   button_push.init();
@@ -133,5 +137,15 @@ void setup() {
 
 void loop() {
   appStateContext.update();
+
+  // 현재 전류 1초에 한 번 시리얼 로깅
+  unsigned long now = millis();
+  if (now - lastCurrentLogMs >= CURRENT_LOG_INTERVAL_MS) {
+    lastCurrentLogMs = now;
+    float i = currentSensor.getCurrent();
+    Serial.print("Current(A): ");
+    Serial.println(i, 3);
+  }
+
   delay(50);  // 50ms마다 업데이트
 }

@@ -41,7 +41,9 @@ void AppStateRun::onUpdate() {
   
   unsigned long now = millis();
   float posSec = motor.getPositionSec();
-  float maxSec = MotorPositionConfigManager::getInstance().max;
+  MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
+  float readySec = config.ready;
+  float topSec = config.top;
   
   // PUSH: Idle로 복귀 (취소)
   if (button_push.isPressed()) {
@@ -58,6 +60,13 @@ void AppStateRun::onUpdate() {
     return;
   }
   
+  // UP/DOWN: 로터리와 동일하게 모터 정지 → Idle로 복귀
+  if (button_cw.justPressed() || button_ccw.justPressed()) {
+    motor.stop();
+    appStateContext.setState(&AppStateIdle::getInstance());
+    return;
+  }
+  
   // 모터 구동
   {
     // 목표 도달 체크
@@ -69,26 +78,27 @@ void AppStateRun::onUpdate() {
     }
     // 모터 구동 (CW/CCW)
     if (diff > 0) motor.runCW(100);
-    else motor.runCCW(50);
+    else motor.runCCW(100);  // 내려갈 때도 올라갈 때와 동일 속도
   }
   
-  // 디스플레이: 현재위치 + 왼쪽위 RUN (RUN만 0.5초 깜빡임)
+  // 표시용 % (ready=1%, top=100%, ready 미만=0%)
+  float pctTarget = MotorPositionConfig::positionToPercent(targetPositionSec, readySec, topSec);
+  float pctCurrent = MotorPositionConfig::positionToPercent(posSec, readySec, topSec);
+  
+  // 디스플레이: 왼쪽위 "->목표%", 중앙 현재%
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
   
-  // 왼쪽위 RUN (0.5초 on, 0.5초 off)
-  bool runVisible = ((now / 500) % 2) == 0;
-  if (runVisible) {
-    display.setTextSize(1);
-    display.setCursor(0, 0);
-    display.print("RUN");
-  }
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  char leftBuf[16];
+  snprintf(leftBuf, sizeof(leftBuf), "->%.1f", pctTarget);
+  display.print(leftBuf);
   
-  // 현재위치 (항상 표시, Idle과 동일)
   char buf[12];
-  snprintf(buf, sizeof(buf), "%.1f", posSec);
+  snprintf(buf, sizeof(buf), "%.1f", pctCurrent);
   int len = strlen(buf);
-  int charW = 18;  // size 3
+  int charW = 18;
   int totalW = len * charW;
   int x = (128 - totalW) / 2;
   display.setTextSize(3);

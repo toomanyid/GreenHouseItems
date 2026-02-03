@@ -36,6 +36,14 @@ struct MotorPositionConfig {
   }
   
   static const int FIELD_COUNT = 4;
+  
+  // 위치(초) → 표시용 % (ready=1%, top=100%, ready 미만=0%)
+  static float positionToPercent(float posSec, float readySec, float topSec) {
+    if (topSec <= readySec) return (posSec <= readySec) ? 0.0f : 100.0f;
+    if (posSec <= readySec) return 0.0f;
+    if (posSec >= topSec) return 100.0f;
+    return 1.0f + (posSec - readySec) / (topSec - readySec) * 99.0f;
+  }
 };
 
 // 싱글톤 + 플래시 저장/로드
