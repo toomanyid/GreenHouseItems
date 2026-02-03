@@ -6,6 +6,7 @@
 #define KEY_READY "ready"
 #define KEY_TOP "top"
 #define KEY_MAX "max"
+#define KEY_MAX_CURRENT "maxCur"
 
 bool MotorPositionConfigManager::load() {
   Preferences prefs;
@@ -18,6 +19,7 @@ bool MotorPositionConfigManager::load() {
   cfg.ready = prefs.getFloat(KEY_READY, 5.0f);
   cfg.top = prefs.getFloat(KEY_TOP, 10.0f);
   cfg.max = prefs.getFloat(KEY_MAX, 15.0f);
+  cfg.maxCurrent = prefs.getFloat(KEY_MAX_CURRENT, 2.0f);
   
   prefs.end();
   return true;
@@ -34,6 +36,7 @@ bool MotorPositionConfigManager::save() {
   prefs.putFloat(KEY_READY, cfg.ready);
   prefs.putFloat(KEY_TOP, cfg.top);
   prefs.putFloat(KEY_MAX, cfg.max);
+  prefs.putFloat(KEY_MAX_CURRENT, cfg.maxCurrent);
   
   prefs.end();
   return true;

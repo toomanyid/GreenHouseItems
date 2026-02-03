@@ -57,19 +57,25 @@ void AppStateSetup::onUpdate() {
     if (selectedIndex >= MotorPositionConfig::FIELD_COUNT) selectedIndex = MotorPositionConfig::FIELD_COUNT - 1;
   }
   
-  // 로터리: 선택된 값 증감 (1초 단위)
+  // 로터리: 선택된 값 증감 (위치값 1초 단위, maxCurrent 0.1 단위 1~10)
   int encVal = encoder.getValue();
   if (encVal != lastEncoderValue) {
     int delta = encVal - lastEncoderValue;
     float* field = config.getField(selectedIndex);
     if (field != nullptr) {
-      *field += delta * 1.0f;
-      if (*field < 0) *field = 0;
+      if (selectedIndex == 4) {  // maxCurrent: 0.1 단위, 범위 1~10
+        *field += delta * 0.1f;
+        if (*field < 1.0f) *field = 1.0f;
+        if (*field > 10.0f) *field = 10.0f;
+      } else {
+        *field += delta * 1.0f;
+        if (*field < 0) *field = 0;
+      }
     }
     lastEncoderValue = encVal;
   }
   
-  // 디스플레이 (State, Pos 제거)
+  // 디스플레이
   display.clearDisplay();
   display.setCursor(0, 0);
   display.setTextSize(1);
@@ -81,8 +87,10 @@ void AppStateSetup::onUpdate() {
     display.print(MotorPositionConfig::getFieldName(i));
     display.print(": ");
     float* f = config.getField(i);
-    if (f != nullptr) display.print(*f, 1);
-    display.println("s");
+    if (f != nullptr) {
+      display.print(*f, 1);
+      display.println((i == 4) ? "A" : "s");
+    } else display.println();
   }
   display.display();
 }

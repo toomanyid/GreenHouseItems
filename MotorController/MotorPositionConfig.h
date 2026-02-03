@@ -3,17 +3,18 @@
 
 #include <Arduino.h>
 
-// 모터 위치 설정값 (동작시간 기준, 초 단위)
-// bottom: 하한, ready: 준비위치, top: 상한, max: 동작가능 최대
+// 모터 위치 설정값 (동작시간 기준, 초 단위) + 전류 한계
+// bottom: 하한, ready: 준비위치, top: 상한, max: 동작가능 최대, maxCurrent: 전류 한계(A)
 struct MotorPositionConfig {
-  float bottom;   // 모터 하한
-  float ready;    // 준비 위치
-  float top;      // 모터 상한
-  float max;      // 동작가능 최대
-  float target;   // Run 목표위치 (런타임, 저장 안 함)
+  float bottom;     // 모터 하한
+  float ready;      // 준비 위치
+  float top;        // 모터 상한
+  float max;        // 동작가능 최대
+  float maxCurrent; // 전류 한계 (A), 범위 1~10, 0.1 단위
+  float target;     // Run 목표위치 (런타임, 저장 안 함)
   
   MotorPositionConfig()
-    : bottom(0), ready(5), top(10), max(15), target(0) {}
+    : bottom(0), ready(5), top(10), max(15), maxCurrent(2.0f), target(0) {}
   
   float* getField(int index) {
     switch (index) {
@@ -21,6 +22,7 @@ struct MotorPositionConfig {
       case 1: return &ready;
       case 2: return &top;
       case 3: return &max;
+      case 4: return &maxCurrent;
       default: return nullptr;
     }
   }
@@ -31,11 +33,12 @@ struct MotorPositionConfig {
       case 1: return "ready";
       case 2: return "top";
       case 3: return "max";
+      case 4: return "maxCur";
       default: return "";
     }
   }
   
-  static const int FIELD_COUNT = 4;
+  static const int FIELD_COUNT = 5;
   
   // 위치(초) → 표시용 % (ready=1%, top=100%, ready 미만=0%)
   static float positionToPercent(float posSec, float readySec, float topSec) {
