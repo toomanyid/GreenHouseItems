@@ -3,7 +3,7 @@
 #include "AppStateIdle.h"
 #include "MotorDriver.h"
 #include "MotorPositionConfig.h"
-#include "Button.h"
+#include "ButtonInterrupt.h"
 #include "RotaryEncoder.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
@@ -11,9 +11,6 @@
 extern Adafruit_SH1106G display;
 extern RotaryEncoder encoder;
 extern MotorDriver& motor;
-extern Button button_push;
-extern Button button_cw;
-extern Button button_ccw;
 extern AppStateContext appStateContext;
 
 AppStateSetup& AppStateSetup::getInstance() {
@@ -33,12 +30,8 @@ void AppStateSetup::onEnter() {
 }
 
 void AppStateSetup::onUpdate() {
-  button_push.update();
-  button_cw.update();
-  button_ccw.update();
-  
   // PUSH: 설정 저장 후 모터에 알리고 Idle로 복귀
-  if (button_push.isPressed()) {
+  if (ButtonInterrupt::isPushPressed()) {
     MotorPositionConfigManager::save();
     motor.setPositionLimits(0, MotorPositionConfigManager::getInstance().top);
     appStateContext.setState(&AppStateIdle::getInstance());
@@ -48,11 +41,11 @@ void AppStateSetup::onUpdate() {
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
   
   // CW/CCW: Up/Down - 항목 간 이동 (한 번만, 두 번씩 입력 방지)
-  if (button_cw.justPressed()) {
+  if (ButtonInterrupt::isCwJustPressed()) {
     selectedIndex--;
     if (selectedIndex < 0) selectedIndex = 0;
   }
-  if (button_ccw.justPressed()) {
+  if (ButtonInterrupt::isCcwJustPressed()) {
     selectedIndex++;
     if (selectedIndex >= MotorPositionConfig::FIELD_COUNT) selectedIndex = MotorPositionConfig::FIELD_COUNT - 1;
   }

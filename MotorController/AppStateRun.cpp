@@ -5,7 +5,7 @@
 #include "MotorDriver.h"
 #include "MotorPositionConfig.h"
 #include "CurrentSensor.h"
-#include "Button.h"
+#include "ButtonInterrupt.h"
 #include "RotaryEncoder.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
@@ -16,9 +16,6 @@ extern Adafruit_SH1106G display;
 extern RotaryEncoder encoder;
 extern MotorDriver& motor;
 extern CurrentSensor& currentSensor;
-extern Button button_push;
-extern Button button_cw;
-extern Button button_ccw;
 extern AppStateContext appStateContext;
 
 AppStateRun& AppStateRun::getInstance() {
@@ -38,18 +35,15 @@ void AppStateRun::onEnter() {
 }
 
 void AppStateRun::onUpdate() {
-  button_push.update();
-  button_cw.update();
-  button_ccw.update();
-  
   unsigned long now = millis();
   float posSec = motor.getPositionSec();
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
+  float bottomSec = config.bottom;
   float readySec = config.ready;
-  float topSec = config.top;
+  float maxSec = config.max;
   
   // PUSH: Idle로 복귀 (취소)
-  if (button_push.isPressed()) {
+  if (ButtonInterrupt::isPushPressed()) {
     motor.stop();
     appStateContext.setState(&AppStateIdle::getInstance());
     return;
@@ -64,7 +58,7 @@ void AppStateRun::onUpdate() {
   }
   
   // UP/DOWN: 로터리와 동일하게 모터 정지 → Idle로 복귀
-  if (button_cw.justPressed() || button_ccw.justPressed()) {
+  if (ButtonInterrupt::isCwJustPressed() || ButtonInterrupt::isCcwJustPressed()) {
     motor.stop();
     appStateContext.setState(&AppStateIdle::getInstance());
     return;
@@ -92,9 +86,9 @@ void AppStateRun::onUpdate() {
     else motor.runCCW(100);  // 내려갈 때도 올라갈 때와 동일 속도
   }
   
-  // 표시용 % (ready=1%, top=100%, ready 미만=0%)
-  float pctTarget = MotorPositionConfig::positionToPercent(targetPositionSec, readySec, topSec);
-  float pctCurrent = MotorPositionConfig::positionToPercent(posSec, readySec, topSec);
+  // 표시용 % (ready=1% 고정, max=100%, ready 미만=0%), 소수점 1자리
+  float pctTarget = MotorPositionConfig::positionToPercent(targetPositionSec, bottomSec, readySec, maxSec);
+  float pctCurrent = MotorPositionConfig::positionToPercent(posSec, bottomSec, readySec, maxSec);
   
   // 디스플레이: 왼쪽위 "->목표%", 중앙 현재%
   display.clearDisplay();
@@ -103,11 +97,11 @@ void AppStateRun::onUpdate() {
   display.setTextSize(1);
   display.setCursor(0, 0);
   char leftBuf[16];
-  snprintf(leftBuf, sizeof(leftBuf), "->%.0f", pctTarget);
+  snprintf(leftBuf, sizeof(leftBuf), "->%.1f", pctTarget);
   display.print(leftBuf);
   
   char buf[12];
-  snprintf(buf, sizeof(buf), "%.0f", pctCurrent);
+  snprintf(buf, sizeof(buf), "%.1f", pctCurrent);
   int len = strlen(buf);
   int charW = 18;
   int totalW = len * charW;

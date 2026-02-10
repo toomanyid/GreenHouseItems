@@ -14,6 +14,9 @@ void AppStateContext::setState(AppState* state) {
   currentState = state;
   nextState = nullptr;
   currentState->onEnter();
+  
+  Serial.print("State: ");
+  Serial.println(currentState->getName());
 }
 
 const char* AppStateContext::getStateName() const {

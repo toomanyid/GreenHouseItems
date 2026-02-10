@@ -9,8 +9,8 @@ static const float NOISE_THRESHOLD = 0.1f;  // A 이하는 0으로 처리
 
 CurrentSensor::CurrentSensor()
   : pin(0), zeroCurrentVoltage(1.65f), sensitivity(0.040f),
-    sampleIndex(0), sampleCount(0), sampleSum(0), currentAverage(0.0f), taskRunning(false) {
-  for (int i = 0; i < CURRENT_SENSOR_BUFFER_SIZE; i++) sampleBuffer[i] = 0.0f;
+    currentAverage(0.0f), maxCurrent(10.0f), overCurrentCallback(nullptr),
+    taskRunning(false) {
 }
 
 CurrentSensor& CurrentSensor::getInstance() {
@@ -21,11 +21,7 @@ CurrentSensor& CurrentSensor::getInstance() {
 void CurrentSensor::init(int adcPin) {
   pin = adcPin;
   pinMode(pin, INPUT);
-  sampleIndex = 0;
-  sampleCount = 0;
-  sampleSum = 0;
   currentAverage = 0.0f;
-  for (int i = 0; i < CURRENT_SENSOR_BUFFER_SIZE; i++) sampleBuffer[i] = 0.0f;
 }
 
 void CurrentSensor::startTask() {
@@ -75,24 +71,24 @@ void CurrentSensor::taskFunction(void* param) {
   self->taskLoop();
 }
 
+float CurrentSensor::readAverage() {
+  float sum = 0;
+  for (int i = 0; i < CURRENT_SENSOR_SAMPLES_PER_READ; i++) {
+    sum += readSample();
+  }
+  return sum / (float)CURRENT_SENSOR_SAMPLES_PER_READ;
+}
+
 void CurrentSensor::taskLoop() {
   const TickType_t intervalMs = CURRENT_SENSOR_SAMPLE_INTERVAL_MS;
   for (;;) {
-    float s = readSample();
-
-    if (sampleCount < CURRENT_SENSOR_BUFFER_SIZE) {
-      sampleBuffer[sampleIndex] = s;
-      sampleSum += s;
-      sampleIndex = (sampleIndex + 1) % CURRENT_SENSOR_BUFFER_SIZE;
-      sampleCount++;
-    } else {
-      sampleSum -= sampleBuffer[sampleIndex];
-      sampleBuffer[sampleIndex] = s;
-      sampleSum += s;
-      sampleIndex = (sampleIndex + 1) % CURRENT_SENSOR_BUFFER_SIZE;
+    // 16개 샘플 읽고 평균을 바로 저장 (버퍼 없음)
+    currentAverage = readAverage();
+    
+    // 전류 초과 체크 및 콜백 호출
+    if (overCurrentCallback != nullptr && fabsf(currentAverage) > maxCurrent) {
+      overCurrentCallback(currentAverage);
     }
-
-    currentAverage = (sampleCount > 0) ? (sampleSum / (float)sampleCount) : 0.0f;
 
     vTaskDelay(pdMS_TO_TICKS(intervalMs));
   }
@@ -108,4 +104,16 @@ void CurrentSensor::setSensitivity(float vPerA) {
 
 float CurrentSensor::getZeroVoltage() {
   return zeroCurrentVoltage;
+}
+
+void CurrentSensor::setMaxCurrent(float maxA) {
+  maxCurrent = maxA;
+}
+
+void CurrentSensor::setOverCurrentCallback(OverCurrentCallback cb) {
+  overCurrentCallback = cb;
+}
+
+float CurrentSensor::getMaxCurrent() {
+  return maxCurrent;
 }

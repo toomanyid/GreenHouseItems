@@ -2,13 +2,12 @@
 #include "AppState.h"
 #include "AppStateIdle.h"
 #include "MotorDriver.h"
-#include "Button.h"
+#include "ButtonInterrupt.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 
 extern Adafruit_SH1106G display;
 extern MotorDriver& motor;
-extern Button button_push;
 extern AppStateContext appStateContext;
 
 AppStateFault& AppStateFault::getInstance() {
@@ -23,10 +22,8 @@ void AppStateFault::onEnter() {
 }
 
 void AppStateFault::onUpdate() {
-  button_push.update();
-
   // PUSH: Idle로 복귀
-  if (button_push.isPressed()) {
+  if (ButtonInterrupt::isPushPressed()) {
     appStateContext.setState(&AppStateIdle::getInstance());
     return;
   }

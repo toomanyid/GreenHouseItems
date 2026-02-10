@@ -5,6 +5,7 @@
 #include "MotorDriver.h"
 #include "CurrentSensor.h"
 #include "Button.h"
+#include "ButtonInterrupt.h"
 #include "AppState.h"
 #include "AppStateIdle.h"
 #include "AppStateSetup.h"
@@ -49,10 +50,8 @@ RotaryEncoder encoder;
 MotorDriver& motor = MotorDriver::getInstance();
 CurrentSensor& currentSensor = CurrentSensor::getInstance();
 
-// 버튼 객체 (PUSH, CW, CCW)
-Button button_push(BUTTON_PUSH_PIN, "PUSH");
-Button button_cw(BUTTON_CW_PIN, "CW");
-Button button_ccw(BUTTON_CCW_PIN, "CCW");
+// 버튼 인터럽트 초기화 (PUSH, UP, DOWN 통합)
+// 기존 Button 객체는 사용하지 않음 (인터럽트 기반으로 변경)
 
 // 상태 패턴 컨텍스트
 AppStateContext appStateContext;
@@ -60,9 +59,14 @@ AppStateContext appStateContext;
 // 엔코더 디스플레이용 변수
 int lastEncoderValue = 0;
 
-// 전류 로깅: 1초 간격
-unsigned long lastCurrentLogMs = 0;
-#define CURRENT_LOG_INTERVAL_MS 1000
+// 전류 초과 콜백 함수 (Fault 상태로 전환)
+void onOverCurrent(float current) {
+  motor.stop();
+  appStateContext.setState(&AppStateFault::getInstance());
+  Serial.print("전류 초과! Current: ");
+  Serial.print(current, 3);
+  Serial.println("A");
+}
 
 void setup() {
   Serial.begin(115200);
@@ -79,11 +83,9 @@ void setup() {
   // 설정 변경 알림: 모터 드라이버에 한계값 전달
   motor.setPositionLimits(0, MotorPositionConfigManager::getInstance().top);
 
-  // 버튼 초기화
-  button_push.init();
-  button_cw.init();
-  button_ccw.init();
-  Serial.println("버튼 초기화 완료!");
+  // 버튼 인터럽트 초기화 (하나의 ISR로 처리)
+  ButtonInterrupt::init(BUTTON_PUSH_PIN, BUTTON_CW_PIN, BUTTON_CCW_PIN);
+  Serial.println("버튼 인터럽트 초기화 완료!");
 
   // 로터리 엔코더 초기화
   encoder.init(ENCODER_CLK, ENCODER_DT);
@@ -96,6 +98,15 @@ void setup() {
   // 전류 센서 초기화 (ACS758-50A) - 캘리브 후 별도 스레드 시작
   currentSensor.init(CURRENT_SENSOR_PIN);
   currentSensor.calibrate();
+  
+  // 설정된 최대 전류 설정 및 콜백 등록
+  float maxCur = MotorPositionConfigManager::getInstance().maxCurrent;
+  currentSensor.setMaxCurrent(maxCur);
+  currentSensor.setOverCurrentCallback(onOverCurrent);
+  Serial.print("최대 전류 설정: ");
+  Serial.print(maxCur, 1);
+  Serial.println("A");
+  
   currentSensor.startTask();
   Serial.println("전류 센서 초기화 완료!");
   
@@ -138,16 +149,8 @@ void setup() {
 }
 
 void loop() {
+  ButtonInterrupt::update();  // 버튼 prev_state 업데이트 (justPressed용)
   appStateContext.update();
-
-  // 현재 전류 1초에 한 번 시리얼 로깅
-  unsigned long now = millis();
-  if (now - lastCurrentLogMs >= CURRENT_LOG_INTERVAL_MS) {
-    lastCurrentLogMs = now;
-    float i = currentSensor.getCurrent();
-    Serial.print("Current(A): ");
-    Serial.println(i, 3);
-  }
 
   delay(50);  // 50ms마다 업데이트
 }
