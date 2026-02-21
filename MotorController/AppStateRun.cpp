@@ -38,8 +38,7 @@ void AppStateRun::onUpdate() {
   unsigned long now = millis();
   float posSec = motor.getPositionSec();
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
-  float bottomSec = config.bottom;
-  float readySec = config.ready;
+  float zeroSec = config.zero;
   float maxSec = config.max;
   
   // PUSH: Idle로 복귀 (취소)
@@ -86,22 +85,18 @@ void AppStateRun::onUpdate() {
     else motor.runCCW(100);  // 내려갈 때도 올라갈 때와 동일 속도
   }
   
-  // 표시용 % (ready=1% 고정, max=100%, ready 미만=0%), 소수점 1자리
-  float pctTarget = MotorPositionConfig::positionToPercent(targetPositionSec, bottomSec, readySec, maxSec);
-  float pctCurrent = MotorPositionConfig::positionToPercent(posSec, bottomSec, readySec, maxSec);
-  
-  // 디스플레이: 왼쪽위 "->목표%", 중앙 현재%
+  // 디스플레이: zero=0.0초 기준, 왼쪽위 "->목표(초)", 중앙 현재(초)
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
   
   display.setTextSize(1);
   display.setCursor(0, 0);
   char leftBuf[16];
-  snprintf(leftBuf, sizeof(leftBuf), "->%.1f", pctTarget);
+  snprintf(leftBuf, sizeof(leftBuf), "->%.1fs", targetPositionSec - zeroSec);
   display.print(leftBuf);
   
-  char buf[12];
-  snprintf(buf, sizeof(buf), "%.1f", pctCurrent);
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%.1fs", posSec - zeroSec);
   int len = strlen(buf);
   int charW = 18;
   int totalW = len * charW;

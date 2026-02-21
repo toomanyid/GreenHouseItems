@@ -33,7 +33,7 @@ void AppStateSetup::onUpdate() {
   // PUSH: 설정 저장 후 모터에 알리고 Idle로 복귀
   if (ButtonInterrupt::isPushPressed()) {
     MotorPositionConfigManager::save();
-    motor.setPositionLimits(0, MotorPositionConfigManager::getInstance().top);
+    motor.setPositionLimits(MotorPositionConfigManager::getInstance().min, MotorPositionConfigManager::getInstance().limit);
     appStateContext.setState(&AppStateIdle::getInstance());
     return;
   }

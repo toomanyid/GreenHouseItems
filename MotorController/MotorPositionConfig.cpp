@@ -2,9 +2,9 @@
 #include <Preferences.h>
 
 #define NVS_NAMESPACE "motor_cfg"
-#define KEY_BOTTOM "bottom"
-#define KEY_READY "ready"
-#define KEY_TOP "top"
+#define KEY_MIN "min"
+#define KEY_ZERO "zero"
+#define KEY_LIMIT "limit"
 #define KEY_MAX "max"
 #define KEY_MAX_CURRENT "maxCur"
 
@@ -15,9 +15,9 @@ bool MotorPositionConfigManager::load() {
   }
   
   MotorPositionConfig& cfg = getInstance();
-  cfg.bottom = prefs.getFloat(KEY_BOTTOM, 0.0f);
-  cfg.ready = prefs.getFloat(KEY_READY, 5.0f);
-  cfg.top = prefs.getFloat(KEY_TOP, 10.0f);
+  cfg.min = prefs.getFloat(KEY_MIN, 0.0f);
+  cfg.zero = prefs.getFloat(KEY_ZERO, 5.0f);
+  cfg.limit = prefs.getFloat(KEY_LIMIT, 10.0f);
   cfg.max = prefs.getFloat(KEY_MAX, 15.0f);
   cfg.maxCurrent = prefs.getFloat(KEY_MAX_CURRENT, 2.0f);
   
@@ -32,9 +32,9 @@ bool MotorPositionConfigManager::save() {
   }
   
   MotorPositionConfig& cfg = getInstance();
-  prefs.putFloat(KEY_BOTTOM, cfg.bottom);
-  prefs.putFloat(KEY_READY, cfg.ready);
-  prefs.putFloat(KEY_TOP, cfg.top);
+  prefs.putFloat(KEY_MIN, cfg.min);
+  prefs.putFloat(KEY_ZERO, cfg.zero);
+  prefs.putFloat(KEY_LIMIT, cfg.limit);
   prefs.putFloat(KEY_MAX, cfg.max);
   prefs.putFloat(KEY_MAX_CURRENT, cfg.maxCurrent);
   

@@ -38,24 +38,25 @@ void AppStateIdle::onUpdate() {
   int currentValue = encoder.getValue();
   unsigned long now = millis();
   
-  // 로터리 회전: 1%씩 증감, 2초 타이머 리셋 (목표는 초 단위로 유지)
+  // 로터리 회전: 1%씩 증감, 2초 타이머 리셋 (목표 초 단위, limit 이상 불가)
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
-  float bottomSec = config.bottom;
-  float readySec = config.ready;
-  float topSec = config.top;
+  float minSec = config.min;
+  float zeroSec = config.zero;
+  float limitSec = config.limit;
   float maxSec = config.max;
   if (currentValue != lastEncoderValue) {
     int delta = currentValue - lastEncoderValue;
     float& targetSec = config.target;
-    float pct = MotorPositionConfig::positionToPercent(targetSec, bottomSec, readySec, maxSec);
+    float pct = MotorPositionConfig::positionToPercent(targetSec, zeroSec, maxSec);
     pct += delta * IDLE_ENCODER_STEP_PCT;
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
-    // % → 초 변환 (0%~1%: bottom~ready, 1%~100%: ready~max)
-    if (pct <= 0) targetSec = bottomSec;
+    // % → 초 변환 (zero~max), 목표는 min~limit 범위로 클램프
+    if (pct <= 0) targetSec = zeroSec;
     else if (pct >= 100) targetSec = maxSec;
-    else if (pct <= 1.0f) targetSec = bottomSec + pct * (readySec - bottomSec);
-    else targetSec = readySec + (pct - 1.0f) / 99.0f * (maxSec - readySec);
+    else targetSec = zeroSec + (pct / 100.0f) * (maxSec - zeroSec);
+    if (targetSec < minSec) targetSec = minSec;
+    if (targetSec > limitSec) targetSec = limitSec;
     lastEncoderValue = currentValue;
     lastEncoderChangeMs = now;
   }
@@ -74,16 +75,16 @@ void AppStateIdle::onUpdate() {
     return;
   }
   
-  // UP/DOWN: 목표값만 변경 (로터리와 동일, top 이상 불가)
+  // UP/DOWN: 목표값만 변경 (min, zero, limit, max 중에서, limit 이상 불가)
   float& targetRef = config.target;
-  float positions[] = {config.bottom, config.ready, config.top, config.max};
+  float positions[] = {config.min, config.zero, config.limit, config.max};
   
   if (ButtonInterrupt::isCwJustPressed()) {
     float next = config.max + 1;
     for (int i = 0; i < 4; i++) {
       if (positions[i] > targetRef && positions[i] < next) next = positions[i];
     }
-    if (next <= topSec) {
+    if (next <= limitSec) {
       targetRef = next;
       lastEncoderChangeMs = now;
     }
@@ -92,35 +93,31 @@ void AppStateIdle::onUpdate() {
     for (int i = 0; i < 4; i++) {
       if (positions[i] < targetRef && positions[i] > next) next = positions[i];
     }
-    if (next >= 0) {
+    if (next >= minSec) {
       targetRef = next;
       lastEncoderChangeMs = now;
     }
   }
   
-  // 표시용 % (ready=1% 고정, max=100%, ready 미만=0%), 소수점 1자리
+  // 화면 표시: zero 기준 시간(초), zero=0.0s
   float posSec = motor.getPositionSec();
-  float pctCurrent = MotorPositionConfig::positionToPercent(posSec, bottomSec, readySec, maxSec);
-  float pctTarget  = MotorPositionConfig::positionToPercent(targetRef, bottomSec, readySec, maxSec);
+  float zeroSec = config.zero;
+  float displaySec = (now - lastEncoderChangeMs) < IDLE_RUN_DELAY_MS ? (config.target - zeroSec) : (posSec - zeroSec);
   
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
   
   bool targetChanged = (now - lastEncoderChangeMs) < IDLE_RUN_DELAY_MS;
-  float displayPct;
   if (targetChanged) {
-    displayPct = pctTarget;
     display.setTextSize(1);
     display.setCursor(0, 0);
     char leftBuf[16];
-    snprintf(leftBuf, sizeof(leftBuf), "%.1f->", pctCurrent);
+    snprintf(leftBuf, sizeof(leftBuf), "%.1fs->", posSec - zeroSec);
     display.print(leftBuf);
-  } else {
-    displayPct = pctCurrent;
   }
   
-  char buf[12];
-  snprintf(buf, sizeof(buf), "%.1f", displayPct);
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%.1fs", displaySec);
   int len = strlen(buf);
   int charW = 18;
   int totalW = len * charW;
