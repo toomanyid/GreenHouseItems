@@ -3,7 +3,6 @@
 #include "AppStateIdle.h"
 #include "MotorDriver.h"
 #include "MotorPositionConfig.h"
-#include "ButtonInterrupt.h"
 #include "RotaryEncoder.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
@@ -29,26 +28,26 @@ void AppStateSetup::onEnter() {
   lastEncoderValue = encoder.getValue();
 }
 
-void AppStateSetup::onUpdate() {
-  // PUSH: 설정 저장 후 모터에 알리고 Idle로 복귀
-  if (ButtonInterrupt::isPushPressed()) {
+void AppStateSetup::onKey(Key key) {
+  if (key == Key::Push) {
     MotorPositionConfigManager::save();
     motor.setPositionLimits(MotorPositionConfigManager::getInstance().min, MotorPositionConfigManager::getInstance().limit);
     appStateContext.setState(&AppStateIdle::getInstance());
     return;
   }
-  
-  MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
-  
-  // CW/CCW: Up/Down - 항목 간 이동 (한 번만, 두 번씩 입력 방지)
-  if (ButtonInterrupt::isCwJustPressed()) {
+  if (key == Key::Cw) {
     selectedIndex--;
     if (selectedIndex < 0) selectedIndex = 0;
+    return;
   }
-  if (ButtonInterrupt::isCcwJustPressed()) {
+  if (key == Key::Ccw) {
     selectedIndex++;
     if (selectedIndex >= MotorPositionConfig::FIELD_COUNT) selectedIndex = MotorPositionConfig::FIELD_COUNT - 1;
   }
+}
+
+void AppStateSetup::onUpdate() {
+  MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
   
   // 로터리: 선택된 값 증감 (위치값 1초 단위, maxCurrent 0.1 단위 1~10)
   int encVal = encoder.getValue();

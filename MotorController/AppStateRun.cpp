@@ -5,7 +5,6 @@
 #include "MotorDriver.h"
 #include "MotorPositionConfig.h"
 #include "CurrentSensor.h"
-#include "ButtonInterrupt.h"
 #include "RotaryEncoder.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
@@ -34,6 +33,12 @@ void AppStateRun::onEnter() {
   display.setTextColor(SH110X_WHITE);
 }
 
+void AppStateRun::onKey(Key key) {
+  // PUSH / CW / CCW: 취소 → Idle
+  motor.stop();
+  appStateContext.setState(&AppStateIdle::getInstance());
+}
+
 void AppStateRun::onUpdate() {
   unsigned long now = millis();
   float posSec = motor.getPositionSec();
@@ -41,23 +46,9 @@ void AppStateRun::onUpdate() {
   float zeroSec = config.zero;
   float maxSec = config.max;
   
-  // PUSH: Idle로 복귀 (취소)
-  if (ButtonInterrupt::isPushPressed()) {
-    motor.stop();
-    appStateContext.setState(&AppStateIdle::getInstance());
-    return;
-  }
-  
   // 로터리 회전: 모터 정지 → Idle로 복귀
   int encVal = encoder.getValue();
   if (encVal != lastEncoderValue) {
-    motor.stop();
-    appStateContext.setState(&AppStateIdle::getInstance());
-    return;
-  }
-  
-  // UP/DOWN: 로터리와 동일하게 모터 정지 → Idle로 복귀
-  if (ButtonInterrupt::isCwJustPressed() || ButtonInterrupt::isCcwJustPressed()) {
     motor.stop();
     appStateContext.setState(&AppStateIdle::getInstance());
     return;
@@ -85,18 +76,23 @@ void AppStateRun::onUpdate() {
     else motor.runCCW(100);  // 내려갈 때도 올라갈 때와 동일 속도
   }
   
-  // 디스플레이: zero=0.0초 기준, 왼쪽위 "->목표(초)", 중앙 현재(초)
+  // 디스플레이: zero=0.0초 기준, -0 표시 방지
+  float dispTarget = targetPositionSec - zeroSec;
+  float dispCurrent = posSec - zeroSec;
+  if (dispTarget > -0.05f && dispTarget < 0.05f) dispTarget = 0.0f;
+  if (dispCurrent > -0.05f && dispCurrent < 0.05f) dispCurrent = 0.0f;
+  
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
   
   display.setTextSize(1);
   display.setCursor(0, 0);
   char leftBuf[16];
-  snprintf(leftBuf, sizeof(leftBuf), "->%.1fs", targetPositionSec - zeroSec);
+  snprintf(leftBuf, sizeof(leftBuf), "->%.1f", dispTarget);
   display.print(leftBuf);
   
   char buf[16];
-  snprintf(buf, sizeof(buf), "%.1fs", posSec - zeroSec);
+  snprintf(buf, sizeof(buf), "%.1f", dispCurrent);
   int len = strlen(buf);
   int charW = 18;
   int totalW = len * charW;

@@ -8,6 +8,7 @@ class AppStateIdle : public AppState {
 public:
   void onEnter() override;
   void onUpdate() override;
+  void onKey(Key key) override;
   const char* getName() const override { return "Idle"; }
   
   static AppStateIdle& getInstance();

@@ -6,7 +6,6 @@
 #include "AppStateRun.h"
 #include "MotorDriver.h"
 #include "MotorPositionConfig.h"
-#include "ButtonInterrupt.h"
 #include "RotaryEncoder.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
@@ -32,6 +31,41 @@ void AppStateIdle::onEnter() {
   lastEncoderChangeMs = millis();
   display.setTextSize(1);
   display.setTextColor(SH110X_WHITE);
+}
+
+void AppStateIdle::onKey(Key key) {
+  MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
+  float minSec = config.min;
+  float limitSec = config.limit;
+  float& targetRef = config.target;
+  float positions[] = {config.min, config.zero, config.limit, config.max};
+  unsigned long now = millis();
+
+  if (key == Key::Push) {
+    appStateContext.setState(&AppStateSetup::getInstance());
+    return;
+  }
+  if (key == Key::Cw) {
+    float next = config.max + 1;
+    for (int i = 0; i < 4; i++) {
+      if (positions[i] > targetRef && positions[i] < next) next = positions[i];
+    }
+    if (next <= limitSec) {
+      targetRef = next;
+      lastEncoderChangeMs = now;
+    }
+    return;
+  }
+  if (key == Key::Ccw) {
+    float next = -1;
+    for (int i = 0; i < 4; i++) {
+      if (positions[i] < targetRef && positions[i] > next) next = positions[i];
+    }
+    if (next >= minSec) {
+      targetRef = next;
+      lastEncoderChangeMs = now;
+    }
+  }
 }
 
 void AppStateIdle::onUpdate() {
@@ -69,40 +103,12 @@ void AppStateIdle::onUpdate() {
     return;
   }
   
-  // PUSH: Setup 상태로 전환
-  if (ButtonInterrupt::isPushPressed()) {
-    appStateContext.setState(&AppStateSetup::getInstance());
-    return;
-  }
-  
-  // UP/DOWN: 목표값만 변경 (min, zero, limit, max 중에서, limit 이상 불가)
-  float& targetRef = config.target;
-  float positions[] = {config.min, config.zero, config.limit, config.max};
-  
-  if (ButtonInterrupt::isCwJustPressed()) {
-    float next = config.max + 1;
-    for (int i = 0; i < 4; i++) {
-      if (positions[i] > targetRef && positions[i] < next) next = positions[i];
-    }
-    if (next <= limitSec) {
-      targetRef = next;
-      lastEncoderChangeMs = now;
-    }
-  } else if (ButtonInterrupt::isCcwJustPressed()) {
-    float next = -1;
-    for (int i = 0; i < 4; i++) {
-      if (positions[i] < targetRef && positions[i] > next) next = positions[i];
-    }
-    if (next >= minSec) {
-      targetRef = next;
-      lastEncoderChangeMs = now;
-    }
-  }
-  
-  // 화면 표시: zero 기준 시간(초), zero=0.0s
+  // 화면 표시: zero 기준 시간(초), zero=0.0 (-0 표시 방지)
   float posSec = motor.getPositionSec();
-  float zeroSec = config.zero;
   float displaySec = (now - lastEncoderChangeMs) < IDLE_RUN_DELAY_MS ? (config.target - zeroSec) : (posSec - zeroSec);
+  if (displaySec > -0.05f && displaySec < 0.05f) displaySec = 0.0f;
+  float leftVal = posSec - zeroSec;
+  if (leftVal > -0.05f && leftVal < 0.05f) leftVal = 0.0f;
   
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
@@ -112,12 +118,12 @@ void AppStateIdle::onUpdate() {
     display.setTextSize(1);
     display.setCursor(0, 0);
     char leftBuf[16];
-    snprintf(leftBuf, sizeof(leftBuf), "%.1fs->", posSec - zeroSec);
+    snprintf(leftBuf, sizeof(leftBuf), "%.1f->", leftVal);
     display.print(leftBuf);
   }
   
   char buf[16];
-  snprintf(buf, sizeof(buf), "%.1fs", displaySec);
+  snprintf(buf, sizeof(buf), "%.1f", displaySec);
   int len = strlen(buf);
   int charW = 18;
   int totalW = len * charW;

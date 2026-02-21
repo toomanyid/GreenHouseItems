@@ -2,7 +2,6 @@
 #include "AppState.h"
 #include "AppStateIdle.h"
 #include "MotorDriver.h"
-#include "ButtonInterrupt.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 
@@ -21,13 +20,13 @@ void AppStateFault::onEnter() {
   display.setTextColor(SH110X_WHITE);
 }
 
-void AppStateFault::onUpdate() {
-  // PUSH: Idle로 복귀
-  if (ButtonInterrupt::isPushPressed()) {
+void AppStateFault::onKey(Key key) {
+  if (key == Key::Push) {
     appStateContext.setState(&AppStateIdle::getInstance());
-    return;
   }
+}
 
+void AppStateFault::onUpdate() {
   // 디스플레이: Fault 표시
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);

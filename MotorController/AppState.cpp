@@ -1,4 +1,5 @@
 #include "AppState.h"
+#include "KeyQueue.h"
 
 AppStateContext::AppStateContext()
   : currentState(nullptr), nextState(nullptr) {
@@ -24,7 +25,13 @@ const char* AppStateContext::getStateName() const {
 }
 
 void AppStateContext::update() {
-  if (currentState != nullptr) {
-    currentState->onUpdate();
+  if (currentState == nullptr) return;
+  // 큐에 쌓인 키를 하나씩 꺼내 현재 상태에 전달
+  while (!KeyQueue::isEmpty()) {
+    Key k = KeyQueue::pop();
+    if (k != Key::None) {
+      currentState->onKey(k);
+    }
   }
+  currentState->onUpdate();
 }

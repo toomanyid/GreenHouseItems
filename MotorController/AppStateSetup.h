@@ -19,6 +19,7 @@ private:
 public:
   void onEnter() override;
   void onUpdate() override;
+  void onKey(Key key) override;
   const char* getName() const override { return "Setup"; }
   
   static AppStateSetup& getInstance();

@@ -8,6 +8,7 @@ class AppStateFault : public AppState {
 public:
   void onEnter() override;
   void onUpdate() override;
+  void onKey(Key key) override;
   const char* getName() const override { return "Fault"; }
 
   static AppStateFault& getInstance();

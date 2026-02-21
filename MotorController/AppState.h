@@ -2,6 +2,7 @@
 #define APP_STATE_H
 
 #include <Arduino.h>
+#include "KeyQueue.h"
 
 // 상태 패턴: 추상 베이스 클래스
 class AppState {
@@ -10,6 +11,7 @@ public:
   
   virtual void onEnter() {}   // 상태 진입 시
   virtual void onUpdate() {}  // 매 루프 호출
+  virtual void onKey(Key key) {}  // 키 입력 전달 (큐에서 팝된 값)
   virtual void onExit() {}    // 상태 이탈 시
   
   virtual const char* getName() const { return "State"; }
