@@ -68,6 +68,13 @@ public:
   
   // 위치 한계 설정 (설정 변경 시 호출하여 알림)
   void setPositionLimits(float minSec, float maxSec);
+  
+  // 과전류: 전류센서에서 이 함수를 콜백으로 등록. 받는 즉시 모터 정지 후 faultNotify 호출
+  static void onOverCurrent(float current);
+  // 과전류 발생 시 정지 후 호출할 알림 (Fault 전환 등). 설정하지 않으면 호출 안 함
+  static void setOverCurrentFaultNotify(void (*notify)(float current));
+private:
+  static void (*overCurrentFaultNotify)(float current);
 };
 
 #endif

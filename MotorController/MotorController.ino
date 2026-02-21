@@ -59,9 +59,8 @@ AppStateContext appStateContext;
 // 엔코더 디스플레이용 변수
 int lastEncoderValue = 0;
 
-// 전류 초과 콜백 함수 (Fault 상태로 전환)
-void onOverCurrent(float current) {
-  motor.stop();
+// 과전류 시 모터 정지 후 호출되는 알림 (Fault 전환)
+void onOverCurrentFaultNotify(float current) {
   appStateContext.setState(&AppStateFault::getInstance());
   Serial.print("전류 초과! Current: ");
   Serial.print(current, 3);
@@ -99,10 +98,11 @@ void setup() {
   currentSensor.init(CURRENT_SENSOR_PIN);
   currentSensor.calibrate();
   
-  // 설정된 최대 전류 설정 및 콜백 등록
+  // 설정된 최대 전류 설정. 과전류 콜백은 모터 드라이버가 받아 즉시 정지
   float maxCur = MotorPositionConfigManager::getInstance().maxCurrent;
   currentSensor.setMaxCurrent(maxCur);
-  currentSensor.setOverCurrentCallback(onOverCurrent);
+  currentSensor.setOverCurrentCallback(MotorDriver::onOverCurrent);
+  motor.setOverCurrentFaultNotify(onOverCurrentFaultNotify);
   Serial.print("최대 전류 설정: ");
   Serial.print(maxCur, 1);
   Serial.println("A");

@@ -184,3 +184,16 @@ void MotorDriver::setPositionLimits(float minSec, float maxSec) {
   minPositionMs = (int32_t)(minSec * 1000.0f);
   maxPositionMs = (int32_t)(maxSec * 1000.0f);
 }
+
+void (*MotorDriver::overCurrentFaultNotify)(float current) = nullptr;
+
+void MotorDriver::onOverCurrent(float current) {
+  getInstance().stop();
+  if (overCurrentFaultNotify) {
+    overCurrentFaultNotify(current);
+  }
+}
+
+void MotorDriver::setOverCurrentFaultNotify(void (*notify)(float current)) {
+  overCurrentFaultNotify = notify;
+}
