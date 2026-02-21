@@ -10,8 +10,6 @@ private:
   static int cwPin;
   static int ccwPin;
 
-  static void IRAM_ATTR isrHandler();
-
   ButtonInterrupt() = delete;
   ButtonInterrupt(const ButtonInterrupt&) = delete;
   void operator=(const ButtonInterrupt&) = delete;
