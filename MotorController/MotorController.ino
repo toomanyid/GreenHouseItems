@@ -149,6 +149,7 @@ void setup() {
 }
 
 void loop() {
-  appStateContext.update();  // 큐에서 키를 하나씩 팝 → 현재 상태 onKey(key), then onUpdate()
+  ButtonInterrupt::update();  // 디바운스용 시각 갱신
+  appStateContext.update();   // 큐에서 키를 하나씩 팝 → 현재 상태 onKey(key), then onUpdate()
   delay(50);
 }
