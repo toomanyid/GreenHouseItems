@@ -23,7 +23,7 @@ AppStateIdle& AppStateIdle::getInstance() {
 }
 
 #define IDLE_RUN_DELAY_MS 2000   // 2초 대기 후 Run 전환
-#define IDLE_ENCODER_STEP_PCT 1.0f  // 엔코더 1틱당 1% 증감
+#define IDLE_ENCODER_STEP_SEC 1.0f  // 엔코더 1틱당 1초 증감
 
 void AppStateIdle::onEnter() {
   motor.stop();
@@ -72,25 +72,17 @@ void AppStateIdle::onUpdate() {
   int currentValue = encoder.getValue();
   unsigned long now = millis();
   
-  // 로터리 회전: 1%씩 증감, 2초 타이머 리셋 (목표 초 단위, top 이상 불가)
+  // 로터리 회전: 1초씩 증감, 2초 타이머 리셋 (목표 min~top 범위)
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
   float minSec = config.getMinSec();
   float bottomSec = config.getBottomSec();
   float topSec = config.getTopSec();
   if (currentValue != lastEncoderValue) {
     int delta = currentValue - lastEncoderValue;
-    float targetSec = config.getTargetSec();
-    float pct = MotorPositionConfig::positionToPercent(targetSec, bottomSec, topSec);
-    pct += delta * IDLE_ENCODER_STEP_PCT;
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
-    // % → 초 변환 (bottom~top), 목표는 min~top 범위로 클램프
-    if (pct <= 0) config.setTargetSec(bottomSec);
-    else if (pct >= 100) config.setTargetSec(topSec);
-    else config.setTargetSec(bottomSec + (pct / 100.0f) * (topSec - bottomSec));
-    float newTarget = config.getTargetSec();
-    if (newTarget < minSec) config.setTargetSec(minSec);
-    else if (newTarget > topSec) config.setTargetSec(topSec);
+    float newTarget = config.getTargetSec() + delta * IDLE_ENCODER_STEP_SEC;
+    if (newTarget < minSec) newTarget = minSec;
+    if (newTarget > topSec) newTarget = topSec;
+    config.setTargetSec(newTarget);
     lastEncoderValue = currentValue;
     lastEncoderChangeMs = now;
   }
