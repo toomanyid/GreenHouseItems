@@ -19,7 +19,7 @@ bool MotorPositionConfigManager::load() {
   cfg.bottom_x10 = prefs.getInt(KEY_BOTTOM, 50);
   cfg.top_x10 = prefs.getInt(KEY_TOP, 100);
   cfg.max_x10 = prefs.getInt(KEY_MAX, 150);
-  cfg.maxCurrent = prefs.getFloat(KEY_MAX_CURRENT, 2.0f);
+  cfg.maxCurrent_x10 = prefs.getInt(KEY_MAX_CURRENT, 20);
   
   prefs.end();
   return true;
@@ -36,7 +36,7 @@ bool MotorPositionConfigManager::save() {
   prefs.putInt(KEY_BOTTOM, cfg.bottom_x10);
   prefs.putInt(KEY_TOP, cfg.top_x10);
   prefs.putInt(KEY_MAX, cfg.max_x10);
-  prefs.putFloat(KEY_MAX_CURRENT, cfg.maxCurrent);
+  prefs.putInt(KEY_MAX_CURRENT, cfg.maxCurrent_x10);
   
   prefs.end();
   return true;

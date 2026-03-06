@@ -55,7 +55,7 @@ void AppStateRun::onUpdate() {
   
   // 전류 모니터링: maxCurrent 초과 시 Fault 전환
   float currentA = currentSensor.getCurrent();
-  if (fabsf(currentA) > config.maxCurrent) {
+  if (fabsf(currentA) > config.getMaxCurrent()) {
     motor.stop();
     appStateContext.setState(&AppStateFault::getInstance());
     return;

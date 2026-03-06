@@ -99,7 +99,7 @@ void setup() {
   currentSensor.calibrate();
   
   // 설정된 최대 전류 설정. 과전류 콜백은 모터 드라이버가 받아 즉시 정지
-  float maxCur = MotorPositionConfigManager::getInstance().maxCurrent;
+  float maxCur = MotorPositionConfigManager::getInstance().getMaxCurrent();
   currentSensor.setMaxCurrent(maxCur);
   currentSensor.setOverCurrentCallback(MotorDriver::onOverCurrent);
   motor.setOverCurrentFaultNotify(onOverCurrentFaultNotify);

@@ -49,16 +49,16 @@ void AppStateSetup::onKey(Key key) {
 void AppStateSetup::onUpdate() {
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
   
-  // 로터리: 선택된 값 증감 (위치값 1초 단위 = 10 단위, maxCurrent 0.1 단위 1~10)
+  // 로터리: 선택된 값 증감 (위치값 1초=10단위, 전류 0.1A=1단위, 범위 10~100)
   int encVal = encoder.getValue();
   if (encVal != lastEncoderValue) {
     int delta = encVal - lastEncoderValue;
     if (selectedIndex == 4) {
-      float* f = config.getMaxCurrentPtr();
+      int* f = config.getMaxCurrentPtr();
       if (f != nullptr) {
-        *f += delta * 0.1f;
-        if (*f < 1.0f) *f = 1.0f;
-        if (*f > 10.0f) *f = 10.0f;
+        *f += delta;  // 1클릭 = 0.1A
+        if (*f < 10) *f = 10;
+        if (*f > 100) *f = 100;
       }
     } else {
       int* f = config.getTimeField_x10(selectedIndex);
@@ -82,7 +82,7 @@ void AppStateSetup::onUpdate() {
     display.print(MotorPositionConfig::getFieldName(i));
     display.print(": ");
     if (i == 4) {
-      display.print(config.maxCurrent, 1);
+      display.print(config.getMaxCurrent(), 1);
       display.println("A");
     } else {
       int* tx = config.getTimeField_x10(i);

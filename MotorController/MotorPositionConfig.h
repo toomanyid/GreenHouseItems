@@ -3,18 +3,18 @@
 
 #include <Arduino.h>
 
-// 모터 위치 설정값: 시간은 10배수 정수 보관 (예: 12.5초 → 125), 전류는 float
+// 모터 위치 설정값: 시간·전류 모두 10배수 정수 보관 (예: 12.5초→125, 2.5A→25)
 // min: 하한, bottom: 기준(0% 표시), top: 동작 상한, max: 최대, maxCurrent: 전류 한계(A)
 struct MotorPositionConfig {
-  int min_x10;      // 모터 하한 (초×10)
-  int bottom_x10;   // 기준 위치 (화면 0.0초)
-  int top_x10;      // 동작 상한 (이 위로 진행 불가)
-  int max_x10;      // 최대
-  float maxCurrent; // 전류 한계 (A), 범위 1~10, 0.1 단위
-  int target_x10;   // Run 목표위치 (런타임, 저장 안 함)
+  int min_x10;        // 모터 하한 (초×10)
+  int bottom_x10;     // 기준 위치 (화면 0.0초)
+  int top_x10;        // 동작 상한 (이 위로 진행 불가)
+  int max_x10;        // 최대
+  int maxCurrent_x10; // 전류 한계 (A×10), 범위 10~100 (1.0~10.0A, 0.1 단위)
+  int target_x10;     // Run 목표위치 (런타임, 저장 안 함)
   
   MotorPositionConfig()
-    : min_x10(0), bottom_x10(50), top_x10(100), max_x10(150), maxCurrent(2.0f), target_x10(0) {}
+    : min_x10(0), bottom_x10(50), top_x10(100), max_x10(150), maxCurrent_x10(20), target_x10(0) {}
   
   // 시간 필드(0~3)용: 10배수 정수 포인터
   int* getTimeField_x10(int index) {
@@ -27,8 +27,11 @@ struct MotorPositionConfig {
     }
   }
   
-  // 전류 필드(4)용
-  float* getMaxCurrentPtr() { return &maxCurrent; }
+  // 전류 필드(4)용: 10배수 정수 포인터
+  int* getMaxCurrentPtr() { return &maxCurrent_x10; }
+  
+  float getMaxCurrent() const { return maxCurrent_x10 / 10.0f; }
+  void setMaxCurrent(float a) { maxCurrent_x10 = (int)(a * 10.0f); }
   
   static const char* getFieldName(int index) {
     switch (index) {
