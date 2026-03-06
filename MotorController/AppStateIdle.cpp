@@ -35,10 +35,10 @@ void AppStateIdle::onEnter() {
 
 void AppStateIdle::onKey(Key key) {
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
-  float minSec = config.min;
-  float topSec = config.top;
-  float& targetRef = config.target;
-  float positions[] = {config.min, config.bottom, config.top, config.max};
+  float minSec = config.getMinSec();
+  float topSec = config.getTopSec();
+  float targetSec = config.getTargetSec();
+  float positions[] = {config.getMinSec(), config.getBottomSec(), config.getTopSec(), config.getMaxSec()};
   unsigned long now = millis();
 
   if (key == Key::Push) {
@@ -46,12 +46,12 @@ void AppStateIdle::onKey(Key key) {
     return;
   }
   if (key == Key::Cw) {
-    float next = config.max + 1;
+    float next = config.getMaxSec() + 1;
     for (int i = 0; i < 4; i++) {
-      if (positions[i] > targetRef && positions[i] < next) next = positions[i];
+      if (positions[i] > targetSec && positions[i] < next) next = positions[i];
     }
     if (next <= topSec) {
-      targetRef = next;
+      config.setTargetSec(next);
       lastEncoderChangeMs = now;
     }
     return;
@@ -59,10 +59,10 @@ void AppStateIdle::onKey(Key key) {
   if (key == Key::Ccw) {
     float next = -1;
     for (int i = 0; i < 4; i++) {
-      if (positions[i] < targetRef && positions[i] > next) next = positions[i];
+      if (positions[i] < targetSec && positions[i] > next) next = positions[i];
     }
     if (next >= minSec) {
-      targetRef = next;
+      config.setTargetSec(next);
       lastEncoderChangeMs = now;
     }
   }
@@ -74,38 +74,39 @@ void AppStateIdle::onUpdate() {
   
   // 로터리 회전: 1%씩 증감, 2초 타이머 리셋 (목표 초 단위, top 이상 불가)
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
-  float minSec = config.min;
-  float bottomSec = config.bottom;
-  float topSec = config.top;
+  float minSec = config.getMinSec();
+  float bottomSec = config.getBottomSec();
+  float topSec = config.getTopSec();
   if (currentValue != lastEncoderValue) {
     int delta = currentValue - lastEncoderValue;
-    float& targetSec = config.target;
+    float targetSec = config.getTargetSec();
     float pct = MotorPositionConfig::positionToPercent(targetSec, bottomSec, topSec);
     pct += delta * IDLE_ENCODER_STEP_PCT;
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     // % → 초 변환 (bottom~top), 목표는 min~top 범위로 클램프
-    if (pct <= 0) targetSec = bottomSec;
-    else if (pct >= 100) targetSec = topSec;
-    else targetSec = bottomSec + (pct / 100.0f) * (topSec - bottomSec);
-    if (targetSec < minSec) targetSec = minSec;
-    if (targetSec > topSec) targetSec = topSec;
+    if (pct <= 0) config.setTargetSec(bottomSec);
+    else if (pct >= 100) config.setTargetSec(topSec);
+    else config.setTargetSec(bottomSec + (pct / 100.0f) * (topSec - bottomSec));
+    float newTarget = config.getTargetSec();
+    if (newTarget < minSec) config.setTargetSec(minSec);
+    else if (newTarget > topSec) config.setTargetSec(topSec);
     lastEncoderValue = currentValue;
     lastEncoderChangeMs = now;
   }
   
   // 2초 대기 후 Run 전환 (목표가 현재와 다를 때만)
-  float target = config.target;
+  float target = config.getTargetSec();
   if ((now - lastEncoderChangeMs) >= IDLE_RUN_DELAY_MS &&
-      abs(target - motor.getPositionSec()) > 0.05f) {
+      fabsf(target - motor.getPositionSec()) > 0.05f) {
     appStateContext.setState(&AppStateRun::getInstance());
     return;
   }
   
   // 화면 표시: bottom 기준 시간(초), bottom=0.0 (-0 표시 방지)
   float posSec = motor.getPositionSec();
-  float bottomSec = config.bottom;
-  float displaySec = (now - lastEncoderChangeMs) < IDLE_RUN_DELAY_MS ? (config.target - bottomSec) : (posSec - bottomSec);
+  float bottomSec = config.getBottomSec();
+  float displaySec = (now - lastEncoderChangeMs) < IDLE_RUN_DELAY_MS ? (config.getTargetSec() - bottomSec) : (posSec - bottomSec);
   if (displaySec > -0.05f && displaySec < 0.05f) displaySec = 0.0f;
   float leftVal = posSec - bottomSec;
   if (leftVal > -0.05f && leftVal < 0.05f) leftVal = 0.0f;

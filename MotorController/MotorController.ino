@@ -80,7 +80,7 @@ void setup() {
     Serial.println("위치 설정 기본값 사용");
   }
   // 설정 변경 알림: 모터 드라이버에 한계값 전달
-  motor.setPositionLimits(MotorPositionConfigManager::getInstance().min, MotorPositionConfigManager::getInstance().top);
+  motor.setPositionLimits(MotorPositionConfigManager::getInstance().getMinSec(), MotorPositionConfigManager::getInstance().getTopSec());
 
   // 버튼 인터럽트 초기화 (하나의 ISR로 처리)
   ButtonInterrupt::init(BUTTON_PUSH_PIN, BUTTON_CW_PIN, BUTTON_CCW_PIN);
@@ -143,7 +143,7 @@ void setup() {
   display.display();
   
   // Idle 상태로 시작, 초기 목표 = 현재 위치
-  MotorPositionConfigManager::getInstance().target = motor.getPositionSec();
+  MotorPositionConfigManager::getInstance().setTargetSec(motor.getPositionSec());
   appStateContext.setState(&AppStateIdle::getInstance());
   Serial.println("초기화 완료! State: Idle");
 }

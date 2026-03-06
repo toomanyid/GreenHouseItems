@@ -27,7 +27,7 @@ AppStateRun::AppStateRun()
 }
 
 void AppStateRun::onEnter() {
-  targetPositionSec = MotorPositionConfigManager::getInstance().target;
+  targetPositionSec = MotorPositionConfigManager::getInstance().getTargetSec();
   lastEncoderValue = encoder.getValue();
   display.setTextSize(1);
   display.setTextColor(SH110X_WHITE);
@@ -43,7 +43,7 @@ void AppStateRun::onUpdate() {
   unsigned long now = millis();
   float posSec = motor.getPositionSec();
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
-  float bottomSec = config.bottom;
+  float bottomSec = config.getBottomSec();
   
   // 로터리 회전: 모터 정지 → Idle로 복귀
   int encVal = encoder.getValue();

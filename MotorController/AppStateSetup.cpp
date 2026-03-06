@@ -31,7 +31,7 @@ void AppStateSetup::onEnter() {
 void AppStateSetup::onKey(Key key) {
   if (key == Key::Push) {
     MotorPositionConfigManager::save();
-    motor.setPositionLimits(MotorPositionConfigManager::getInstance().min, MotorPositionConfigManager::getInstance().top);
+    motor.setPositionLimits(MotorPositionConfigManager::getInstance().getMinSec(), MotorPositionConfigManager::getInstance().getTopSec());
     appStateContext.setState(&AppStateIdle::getInstance());
     return;
   }
@@ -49,19 +49,22 @@ void AppStateSetup::onKey(Key key) {
 void AppStateSetup::onUpdate() {
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
   
-  // 로터리: 선택된 값 증감 (위치값 1초 단위, maxCurrent 0.1 단위 1~10)
+  // 로터리: 선택된 값 증감 (위치값 1초 단위 = 10 단위, maxCurrent 0.1 단위 1~10)
   int encVal = encoder.getValue();
   if (encVal != lastEncoderValue) {
     int delta = encVal - lastEncoderValue;
-    float* field = config.getField(selectedIndex);
-    if (field != nullptr) {
-      if (selectedIndex == 4) {  // maxCurrent: 0.1 단위, 범위 1~10
-        *field += delta * 0.1f;
-        if (*field < 1.0f) *field = 1.0f;
-        if (*field > 10.0f) *field = 10.0f;
-      } else {
-        *field += delta * 1.0f;
-        if (*field < 0) *field = 0;
+    if (selectedIndex == 4) {
+      float* f = config.getMaxCurrentPtr();
+      if (f != nullptr) {
+        *f += delta * 0.1f;
+        if (*f < 1.0f) *f = 1.0f;
+        if (*f > 10.0f) *f = 10.0f;
+      }
+    } else {
+      int* f = config.getTimeField_x10(selectedIndex);
+      if (f != nullptr) {
+        *f += delta * 10;  // 1클릭 = 1초 = 10
+        if (*f < 0) *f = 0;
       }
     }
     lastEncoderValue = encVal;
@@ -78,11 +81,16 @@ void AppStateSetup::onUpdate() {
     else display.print(" ");
     display.print(MotorPositionConfig::getFieldName(i));
     display.print(": ");
-    float* f = config.getField(i);
-    if (f != nullptr) {
-      display.print(*f, 1);
-      display.println((i == 4) ? "A" : "s");
-    } else display.println();
+    if (i == 4) {
+      display.print(config.maxCurrent, 1);
+      display.println("A");
+    } else {
+      int* tx = config.getTimeField_x10(i);
+      if (tx != nullptr) {
+        display.print((*tx) / 10.0f, 1);
+        display.println("s");
+      } else display.println();
+    }
   }
   display.display();
 }
