@@ -30,6 +30,7 @@ void AppStateContext::update() {
   while (!KeyQueue::isEmpty()) {
     Key k = KeyQueue::pop();
     if (k != Key::None) {
+      Serial.println(k == Key::Push ? "[Key] P" : k == Key::Cw ? "[Key] C" : "[Key] W");
       currentState->onKey(k);
     }
   }
