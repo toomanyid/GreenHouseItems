@@ -105,7 +105,6 @@ void AppStateIdle::onUpdate() {
   
   // 화면 표시: bottom 기준 시간(초), bottom=0.0 (-0 표시 방지)
   float posSec = motor.getPositionSec();
-  float bottomSec = config.getBottomSec();
   float displaySec = (now - lastEncoderChangeMs) < IDLE_RUN_DELAY_MS ? (config.getTargetSec() - bottomSec) : (posSec - bottomSec);
   if (displaySec > -0.05f && displaySec < 0.05f) displaySec = 0.0f;
   float leftVal = posSec - bottomSec;
