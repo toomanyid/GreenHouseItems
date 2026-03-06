@@ -4,12 +4,23 @@
 int ButtonInterrupt::pushPin = 0;
 int ButtonInterrupt::cwPin = 0;
 int ButtonInterrupt::ccwPin = 0;
+volatile bool ButtonInterrupt::pushPrev = false;
+volatile bool ButtonInterrupt::cwPrev = false;
+volatile bool ButtonInterrupt::ccwPrev = false;
 
-// FALLING에서만 호출됨 → 핀 읽어서 LOW인 키만 push (어느 핀에서 떨어졌는지 모르므로 세 핀 모두 확인)
+// 통합 핸들러: CHANGE 시 핀 읽어서 FALLING(눌림)일 때만 KeyQueue push
 void IRAM_ATTR ButtonInterrupt::isrHandler() {
-  if (digitalRead(pushPin) == LOW) KeyQueue::push(Key::Push);
-  if (digitalRead(cwPin) == LOW) KeyQueue::push(Key::Cw);
-  if (digitalRead(ccwPin) == LOW) KeyQueue::push(Key::Ccw);
+  bool pushNow = (digitalRead(pushPin) == LOW);
+  bool cwNow = (digitalRead(cwPin) == LOW);
+  bool ccwNow = (digitalRead(ccwPin) == LOW);
+
+  if (pushNow && !pushPrev) KeyQueue::push(Key::Push);
+  if (cwNow && !cwPrev) KeyQueue::push(Key::Cw);
+  if (ccwNow && !ccwPrev) KeyQueue::push(Key::Ccw);
+
+  pushPrev = pushNow;
+  cwPrev = cwNow;
+  ccwPrev = ccwNow;
 }
 
 void ButtonInterrupt::init(int push, int cw, int ccw) {
@@ -21,7 +32,11 @@ void ButtonInterrupt::init(int push, int cw, int ccw) {
   pinMode(cwPin, INPUT_PULLUP);
   pinMode(ccwPin, INPUT_PULLUP);
 
-  attachInterrupt(digitalPinToInterrupt(pushPin), &ButtonInterrupt::isrHandler, FALLING);
-  attachInterrupt(digitalPinToInterrupt(cwPin), &ButtonInterrupt::isrHandler, FALLING);
-  attachInterrupt(digitalPinToInterrupt(ccwPin), &ButtonInterrupt::isrHandler, FALLING);
+  pushPrev = (digitalRead(pushPin) == LOW);
+  cwPrev = (digitalRead(cwPin) == LOW);
+  ccwPrev = (digitalRead(ccwPin) == LOW);
+
+  attachInterrupt(digitalPinToInterrupt(pushPin), &ButtonInterrupt::isrHandler, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(cwPin), &ButtonInterrupt::isrHandler, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ccwPin), &ButtonInterrupt::isrHandler, CHANGE);
 }

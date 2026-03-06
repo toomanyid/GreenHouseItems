@@ -80,7 +80,7 @@ void setup() {
     Serial.println("위치 설정 기본값 사용");
   }
   // 설정 변경 알림: 모터 드라이버에 한계값 전달
-  motor.setPositionLimits(MotorPositionConfigManager::getInstance().min, MotorPositionConfigManager::getInstance().limit);
+  motor.setPositionLimits(MotorPositionConfigManager::getInstance().min, MotorPositionConfigManager::getInstance().top);
 
   // 버튼 인터럽트 초기화 (하나의 ISR로 처리)
   ButtonInterrupt::init(BUTTON_PUSH_PIN, BUTTON_CW_PIN, BUTTON_CCW_PIN);

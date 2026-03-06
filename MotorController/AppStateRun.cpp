@@ -43,8 +43,7 @@ void AppStateRun::onUpdate() {
   unsigned long now = millis();
   float posSec = motor.getPositionSec();
   MotorPositionConfig& config = MotorPositionConfigManager::getInstance();
-  float zeroSec = config.zero;
-  float maxSec = config.max;
+  float bottomSec = config.bottom;
   
   // 로터리 회전: 모터 정지 → Idle로 복귀
   int encVal = encoder.getValue();
@@ -76,9 +75,9 @@ void AppStateRun::onUpdate() {
     else motor.runCCW(100);  // 내려갈 때도 올라갈 때와 동일 속도
   }
   
-  // 디스플레이: zero=0.0초 기준, -0 표시 방지
-  float dispTarget = targetPositionSec - zeroSec;
-  float dispCurrent = posSec - zeroSec;
+  // 디스플레이: bottom=0.0초 기준, -0 표시 방지
+  float dispTarget = targetPositionSec - bottomSec;
+  float dispCurrent = posSec - bottomSec;
   if (dispTarget > -0.05f && dispTarget < 0.05f) dispTarget = 0.0f;
   if (dispCurrent > -0.05f && dispCurrent < 0.05f) dispCurrent = 0.0f;
   

@@ -31,7 +31,7 @@ void AppStateSetup::onEnter() {
 void AppStateSetup::onKey(Key key) {
   if (key == Key::Push) {
     MotorPositionConfigManager::save();
-    motor.setPositionLimits(MotorPositionConfigManager::getInstance().min, MotorPositionConfigManager::getInstance().limit);
+    motor.setPositionLimits(MotorPositionConfigManager::getInstance().min, MotorPositionConfigManager::getInstance().top);
     appStateContext.setState(&AppStateIdle::getInstance());
     return;
   }

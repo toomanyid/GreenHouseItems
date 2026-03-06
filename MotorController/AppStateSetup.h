@@ -3,13 +3,13 @@
 
 #include "AppState.h"
 
-// Setup 상태: min, zero, limit, max 4가지 위치값 설정
+// Setup 상태: min, bottom, top, max 4가지 위치값 설정
 // PUSH: 저장 후 Idle로 복귀
 // CW/CCW (Up/Down): 항목 간 이동
 // 로터리: 선택된 값 증감 (1초/틱)
 class AppStateSetup : public AppState {
 private:
-  int selectedIndex;   // 0=min, 1=zero, 2=limit, 3=max, 4=maxCur
+  int selectedIndex;   // 0=min, 1=bottom, 2=top, 3=max, 4=maxCur
   int lastEncoderValue;
   
   AppStateSetup();
