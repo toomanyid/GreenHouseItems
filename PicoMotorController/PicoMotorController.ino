@@ -87,6 +87,7 @@ static const uint8_t MOTOR_PWM_DUTY = 220;
 static const uint32_t SOFT_START_MS = 2000;
 /** RUN 위치 적분·PWM 갱신 주기 (짧을수록 램프·누적이 매끄러움) */
 static const uint32_t RUN_POSITION_TICK_MS = 50;
+static const uint32_t ENC_SW_DEBOUNCE_MS = 40;
 
 /** 1: 회전 시 목표값 증감 방향 반전(TR/A·B 핀 교체와 동일). 0: 이전 방향 */
 #ifndef ROTARY_ENCODER_REVERSE
@@ -211,6 +212,10 @@ static const int8_t encQuadTable[16] = {
     0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
 static int32_t encAccum = 0;
 
+static uint32_t encSwLastChangeMs = 0;
+static uint8_t encSwStable = 1;
+static uint8_t encSwPrevRaw = 1;
+
 static float vZero = 1.65f;
 
 static uint32_t dbgSendBufferCount = 0;
@@ -296,6 +301,9 @@ static void encoderInit() {
   pinMode(PIN_BTN_BACK, INPUT_PULLUP);
   encLastAB =
       (digitalRead(PIN_ENC_A) ? 1u : 0u) | (digitalRead(PIN_ENC_B) ? 2u : 0u);
+  encSwPrevRaw = digitalRead(PIN_ENC_SW) ? 1u : 0u;
+  encSwStable = encSwPrevRaw;
+  encSwLastChangeMs = millis();
 }
 
 /** 한 디텐트 = ±1 (목표 절대값). true = 목표 변경됨 */
@@ -573,6 +581,15 @@ static void stopRunForEncoderEdit() {
   armPhaseStartMs = 0;
 }
 
+/** RUN 중 푸시(PSH): 모터 정지 후 IDLE (자동 ARM 재출발 없음) */
+static void stopRunForPushIdle() {
+  DBG_PRINTLN(F("[PSH] run stopped -> IDLE"));
+  markMotorStopped(runDir);
+  phase = MUI_IDLE;
+  runDir = 0;
+  runStepAccum = 0.f;
+}
+
 void setup() {
   Serial.begin(DBG_SERIAL_BAUD);
 #if defined(ARDUINO_ARCH_RP2040)
@@ -663,6 +680,18 @@ void loop() {
   }
 
   const bool encStep = encoderPollStep();
+
+  {
+    uint8_t raw = digitalRead(PIN_ENC_SW) ? 1u : 0u;
+    if (raw != encSwPrevRaw) {
+      encSwPrevRaw = raw;
+      encSwLastChangeMs = now;
+    } else if ((now - encSwLastChangeMs) >= ENC_SW_DEBOUNCE_MS &&
+               raw != encSwStable) {
+      encSwStable = raw;
+      if (encSwStable == 0u && phase == MUI_RUN) stopRunForPushIdle();
+    }
+  }
 
   if (encStep) {
     lastEncStepMs = now;
