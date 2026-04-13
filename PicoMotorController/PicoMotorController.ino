@@ -83,6 +83,10 @@ static const float MV_PER_AMP = 40.0f * (3.3f / 5.0f);
 static const int ADC_SAMPLES = 24;
 static const uint32_t OC_TRIP_MS = 120;
 static const uint8_t MOTOR_PWM_DUTY = 220;
+/** 소프트 스타트: 이 시간(ms) 동안 PWM·누적 속도를 0→최대로 선형 증가 */
+static const uint32_t SOFT_START_MS = 2000;
+/** RUN 위치 적분·PWM 갱신 주기 (짧을수록 램프·누적이 매끄러움) */
+static const uint32_t RUN_POSITION_TICK_MS = 50;
 
 /** 1: 회전 시 목표값 증감 방향 반전(TR/A·B 핀 교체와 동일). 0: 이전 방향 */
 #ifndef ROTARY_ENCODER_REVERSE
@@ -193,7 +197,9 @@ static uint32_t lastEncStepMs = 0;
 static uint32_t armPhaseStartMs = 0;
 
 static int8_t runDir = 0;
-static uint32_t runNextSecondMs = 0;
+static uint32_t runStartMs = 0;
+static uint32_t runLastPosTickMs = 0;
+static float runStepAccum = 0;
 
 static uint32_t ocStartMs = 0;
 
@@ -255,6 +261,11 @@ static void markMotorStopped(int8_t dirJustRun) {
   if (dirJustRun != 0) lastMotorDir = dirJustRun;
 }
 
+static float softStartSpeed01(uint32_t elapsedMs) {
+  if (elapsedMs >= SOFT_START_MS) return 1.0f;
+  return elapsedMs / (float)SOFT_START_MS;
+}
+
 // ----------------------------- ADC -----------------------------
 static float readAdcV() {
   uint32_t sum = 0;
@@ -287,7 +298,7 @@ static void encoderInit() {
       (digitalRead(PIN_ENC_A) ? 1u : 0u) | (digitalRead(PIN_ENC_B) ? 2u : 0u);
 }
 
-/** 한 디텐트 = ±1 (목표 절대값 1초 스텝). true = 목표 변경됨 */
+/** 한 디텐트 = ±1 (목표 절대값). true = 목표 변경됨 */
 static bool encoderPollStep() {
   uint8_t ab =
       (digitalRead(PIN_ENC_A) ? 1u : 0u) | (digitalRead(PIN_ENC_B) ? 2u : 0u);
@@ -539,16 +550,18 @@ static void attemptStartMotor() {
 
   runDir = nd;
   phase = MUI_RUN;
-  runNextSecondMs = millis() + 1000;
+  uint32_t t0 = millis();
+  runStartMs = t0;
+  runLastPosTickMs = t0 - RUN_POSITION_TICK_MS;
+  runStepAccum = 0.f;
   ocStartMs = 0;
   fanFrame = 0;
 
-  Serial.printf("[MOTOR] -> RUN dir=%s PWM=%u\n", runDir > 0 ? "FWD" : "REV",
-                (unsigned)MOTOR_PWM_DUTY);
-  if (runDir > 0)
-    motorForward(MOTOR_PWM_DUTY);
-  else
-    motorReverse(MOTOR_PWM_DUTY);
+  Serial.printf(
+      "[MOTOR] -> RUN dir=%s PWM_max=%u softStart=%lums tick=%lums\n",
+      runDir > 0 ? "FWD" : "REV", (unsigned)MOTOR_PWM_DUTY,
+      (unsigned long)SOFT_START_MS, (unsigned long)RUN_POSITION_TICK_MS);
+  /* 첫 PWM·누적은 loop RUN 틱에서 적용 */
 }
 
 static void stopRunForEncoderEdit() {
@@ -700,17 +713,44 @@ void loop() {
       ocStartMs = 0;
     }
 
-    if (now >= runNextSecondMs) {
-      runNextSecondMs += 1000;
-      if (currentAbs < targetAbs)
-        currentAbs++;
-      else if (currentAbs > targetAbs)
-        currentAbs--;
+    if (phase == MUI_RUN &&
+        now - runLastPosTickMs >= RUN_POSITION_TICK_MS) {
+      uint32_t dt = now - runLastPosTickMs;
+      if (dt > 250u) dt = 250u;
+      runLastPosTickMs = now;
+
+      uint32_t t0 = now - dt;
+      uint32_t elStart =
+          (t0 > runStartMs) ? (t0 - runStartMs) : 0u;
+      uint32_t elEnd = now - runStartMs;
+      float s0 = softStartSpeed01(elStart);
+      float s1 = softStartSpeed01(elEnd);
+      float speedAvg = 0.5f * (s0 + s1);
+      runStepAccum += speedAvg * (dt / 1000.0f);
+
+      uint8_t duty = (uint8_t)(MOTOR_PWM_DUTY * s1 + 0.5f);
+      if (duty > MOTOR_PWM_DUTY) duty = MOTOR_PWM_DUTY;
+      if (runDir > 0)
+        motorForward(duty);
+      else
+        motorReverse(duty);
+
+      while (runStepAccum >= 1.0f && currentAbs != targetAbs) {
+        if (currentAbs < targetAbs)
+          currentAbs++;
+        else if (currentAbs > targetAbs)
+          currentAbs--;
+        else
+          break;
+        runStepAccum -= 1.0f;
+      }
+
       if (currentAbs == targetAbs) {
         DBG_PRINTLN(F("[MOTOR] target reached -> IDLE"));
         markMotorStopped(runDir);
         phase = MUI_IDLE;
         runDir = 0;
+        runStepAccum = 0.f;
       }
     }
 
@@ -729,9 +769,10 @@ void loop() {
 
   if (now - dbgLastHb >= 2000) {
     dbgLastHb = now;
+    float iA = readAmps();
     Serial.printf(
-        "[HB] phase=%s cur=%ld tgt=%ld encStep=%s draws=%lu ms=%lu\n",
-        motorUiStateStr(phase), (long)currentAbs, (long)targetAbs,
+        "[HB] phase=%s cur=%ld tgt=%ld I=%.3f A encStep=%s draws=%lu ms=%lu\n",
+        motorUiStateStr(phase), (long)currentAbs, (long)targetAbs, iA,
         encStep ? "Y" : "N", (unsigned long)dbgSendBufferCount,
         (unsigned long)now);
   }
