@@ -6,7 +6,7 @@
  *
  * 핀
  *   OLED I²C: SDA GP6, SCL GP7 (RP2040 I²C1 — Wire1 하드웨어 권장, 아래 OLED_CTRL)
- *   엔코더 TRA/TRB: GP3, GP4  | PSH GP2, CONFIRM GP5, BACK GP10 (예약, 풀업)
+ *   엔코더 TRA/TRB: GP3, GP4  | PSH GP2 (5초 홀드=SETUP), CONFIRM GP5, BACK GP10
  *   전류 ADC: GP26
  *   모터1: GP16(L1), GP17(L2)  | 모터2: GP18(L1), GP19(L2)
  *
@@ -88,6 +88,7 @@ static const uint32_t SOFT_START_MS = 2000;
 /** RUN 위치 적분·PWM 갱신 주기 (짧을수록 램프·누적이 매끄러움) */
 static const uint32_t RUN_POSITION_TICK_MS = 50;
 static const uint32_t ENC_SW_DEBOUNCE_MS = 40;
+static const uint32_t SETUP_HOLD_MS = 5000;
 
 /** 1: 회전 시 목표값 증감 방향 반전(TR/A·B 핀 교체와 동일). 0: 이전 방향 */
 #ifndef ROTARY_ENCODER_REVERSE
@@ -164,7 +165,8 @@ enum {
   MUI_ARM,
   MUI_DIR_WAIT,
   MUI_RUN,
-  MUI_TRIP
+  MUI_TRIP,
+  MUI_SETUP
 };
 
 static const char* motorUiStateStr(uint8_t s) {
@@ -181,6 +183,8 @@ static const char* motorUiStateStr(uint8_t s) {
       return "RUN";
     case MUI_TRIP:
       return "TRIP";
+    case MUI_SETUP:
+      return "SETUP";
     default:
       return "?";
   }
@@ -215,6 +219,7 @@ static int32_t encAccum = 0;
 static uint32_t encSwLastChangeMs = 0;
 static uint8_t encSwStable = 1;
 static uint8_t encSwPrevRaw = 1;
+static uint32_t encSwHeldSinceMs = 0;
 
 static float vZero = 1.65f;
 
@@ -527,6 +532,13 @@ static void drawUi() {
       u8g2.setFont(u8g2_font_6x10_tf);
       u8g2.drawStr(0, 10, "OC  enc=clear");
       break;
+    case MUI_SETUP:
+      u8g2.setFont(u8g2_font_logisoso22_tf);
+      u8g2.drawStr(20, 38, "SETUP");
+      u8g2.setFont(u8g2_font_6x10_tf);
+      u8g2.drawStr(0, 10, "I-zero calibrated");
+      u8g2.drawStr(0, 63, "release PSH");
+      break;
   }
   u8g2.sendBuffer();
   dbgSendBufferCount++;
@@ -679,7 +691,8 @@ void loop() {
     dbgLoopOnce = true;
   }
 
-  const bool encStep = encoderPollStep();
+  const bool encStep =
+      (phase == MUI_SETUP) ? false : encoderPollStep();
 
   {
     uint8_t raw = digitalRead(PIN_ENC_SW) ? 1u : 0u;
@@ -689,7 +702,31 @@ void loop() {
     } else if ((now - encSwLastChangeMs) >= ENC_SW_DEBOUNCE_MS &&
                raw != encSwStable) {
       encSwStable = raw;
-      if (encSwStable == 0u && phase == MUI_RUN) stopRunForPushIdle();
+      if (encSwStable == 0u) {
+        encSwHeldSinceMs = now;
+        if (phase == MUI_RUN) stopRunForPushIdle();
+      } else {
+        encSwHeldSinceMs = 0;
+        if (phase == MUI_SETUP) {
+          phase = MUI_IDLE;
+          encLastAB = (digitalRead(PIN_ENC_A) ? 1u : 0u) |
+                      (digitalRead(PIN_ENC_B) ? 2u : 0u);
+          encAccum = 0;
+        }
+      }
+    }
+  }
+
+  if (encSwStable == 0u && phase != MUI_SETUP && encSwHeldSinceMs != 0u) {
+    if (now - encSwHeldSinceMs >= SETUP_HOLD_MS) {
+      motorAllStop();
+      runDir = 0;
+      runStepAccum = 0.f;
+      phase = MUI_SETUP;
+      calibrateZero();
+      Serial.printf(
+          "[SETUP] I-zero cal vZero=%.4f V (release PSH -> IDLE)\n", vZero);
+      encSwHeldSinceMs = 0;
     }
   }
 
