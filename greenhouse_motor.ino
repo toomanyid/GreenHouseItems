@@ -46,20 +46,20 @@ void    applyTargetPct(int pct);
 //  위치 변환 함수
 // ============================================================
 float posSecToPercent(float sec, const Settings &s) {
-    if (sec <= s.bottom_sec) return 0.0f;
-    if (sec <= s.zero_sec)   return 1.0f;
-    float top = s.top_sec;
-    float range = top - s.zero_sec;
+    int32_t pos_ds = (int32_t)roundf(sec * 10.0f);
+    if (pos_ds <= s.bottom_ds) return 0.0f;
+    if (pos_ds <= s.zero_ds)   return 1.0f;
+    int32_t range = s.top_ds - s.zero_ds;
     if (range <= 0) return 1.0f;
-    float pct = 1.0f + (sec - s.zero_sec) / range * 98.0f;
+    float pct = 1.0f + (float)(pos_ds - s.zero_ds) / range * 98.0f;
     return constrain(pct, 1.0f, 100.0f);
 }
 
 float percentToPosSec(int pct, const Settings &s) {
-    if (pct == 0) return s.bottom_sec;
-    if (pct == 1) return s.zero_sec;
-    float range = s.top_sec - s.zero_sec;
-    return s.zero_sec + (float)(pct - 1) / 99.0f * range;
+    if (pct == 0) return s.bottom_ds / 10.0f;
+    if (pct == 1) return s.zero_ds   / 10.0f;
+    int32_t range = s.top_ds - s.zero_ds;
+    return (s.zero_ds + (int32_t)((float)(pct - 1) / 99.0f * range)) / 10.0f;
 }
 
 // ============================================================
@@ -67,11 +67,11 @@ float percentToPosSec(int pct, const Settings &s) {
 // ============================================================
 float getSettingValue(int idx) {
     switch (idx) {
-        case 0: return cfg.bottom_sec < 0 ? 0 : cfg.bottom_sec;
-        case 1: return cfg.zero_sec   < 0 ? 0 : cfg.zero_sec;
-        case 2: return cfg.top_sec    < 0 ? 0 : cfg.top_sec;
-        case 3: return cfg.limit_sec  <= 0 ? cfg.top_sec : cfg.limit_sec;
-        case 4: return cfg.overcurrent_a;
+        case 0: return (cfg.bottom_ds < 0 ? 0 : cfg.bottom_ds) / 10.0f;
+        case 1: return (cfg.zero_ds   < 0 ? 0 : cfg.zero_ds)   / 10.0f;
+        case 2: return (cfg.top_ds    < 0 ? 0 : cfg.top_ds)    / 10.0f;
+        case 3: return (cfg.limit_ds  <= 0 ? cfg.top_ds : cfg.limit_ds) / 10.0f;
+        case 4: return cfg.overcurrent_da / 10.0f;
         case 5: return (float)cfg.auto_timeout_s;
         case 6: return (float)cfg.slave_id;
         case 7: return (float)cfg.baud_code;
@@ -81,11 +81,11 @@ float getSettingValue(int idx) {
 
 void applySettingValue(int idx, float val) {
     switch (idx) {
-        case 0: cfg.bottom_sec     = val; break;
-        case 1: cfg.zero_sec       = val; break;
-        case 2: cfg.top_sec        = val; break;
-        case 3: cfg.limit_sec      = val; break;
-        case 4: cfg.overcurrent_a  = constrain(val, 0.5f, 50.0f); break;
+        case 0: cfg.bottom_ds      = (int32_t)roundf(val * 10.0f); break;
+        case 1: cfg.zero_ds        = (int32_t)roundf(val * 10.0f); break;
+        case 2: cfg.top_ds         = (int32_t)roundf(val * 10.0f); break;
+        case 3: cfg.limit_ds       = (int32_t)roundf(val * 10.0f); break;
+        case 4: cfg.overcurrent_da = (int32_t)roundf(constrain(val, 0.5f, 50.0f) * 10.0f); break;
         case 5: cfg.auto_timeout_s = (uint32_t)constrain(val, 10, 600); break;
         case 6: cfg.slave_id       = (uint8_t)constrain(val, 1, 247); break;
         case 7: cfg.baud_code      = (uint8_t)constrain(val, 0, BAUD_TABLE_SIZE - 1); break;
@@ -127,22 +127,21 @@ void updateAutoSetup() {
             // bottom 도달
             motor.emergencyStop();
             motor.setPosition(0.0f);
-            cfg.bottom_sec = 0.0f;
-            cfg.zero_sec   = 0.0f;
+            cfg.bottom_ds = 0;
+            cfg.zero_ds   = 0;
 
             // 2단계 시작
             autoStep   = 1;
             autoStepMs = millis();
-            motor.moveTo(9999.0f, cfg.overcurrent_a);  // top방향으로 무한 이동
+            motor.moveTo(9999.0f, cfg.overcurrent_da / 10.0f);  // top방향으로 무한 이동
         }
     } else {
         // 2단계: 정방향 이동 → 전류 없을 때까지
         if (currentSensor.isZero() && elapsed_sec > 1.0f) {
             // top 도달
             motor.emergencyStop();
-            float top = elapsed_sec;
-            cfg.top_sec   = top;
-            cfg.limit_sec = 0.0f;  // top과 동일
+            cfg.top_ds   = (int32_t)roundf(elapsed_sec * 10.0f);
+            cfg.limit_ds = 0;  // top과 동일
 
             flashStorage.save(cfg);
             appState = AppState::NORMAL;
@@ -161,27 +160,28 @@ void updateNormal() {
     int delta = input.getEncoderDelta();
     if (delta != 0 && flashStorage.isConfigured(cfg)) {
         float target = motor.getPositionSec() + delta * 0.5f;
-        target = constrain(target, cfg.bottom_sec, flashStorage.effectiveLimit(cfg));
-        motor.moveTo(target, cfg.overcurrent_a);
+        target = constrain(target, cfg.bottom_ds / 10.0f,
+                           flashStorage.effectiveLimit(cfg) / 10.0f);
+        motor.moveTo(target, cfg.overcurrent_da / 10.0f);
     }
 
     // 택트 스위치: 스텝 이동
     if (input.isSwUpPressed() && flashStorage.isConfigured(cfg)) {
-        float steps[] = { cfg.bottom_sec, cfg.zero_sec,
-                          flashStorage.effectiveLimit(cfg), cfg.top_sec };
+        float steps[] = { cfg.bottom_ds / 10.0f, cfg.zero_ds / 10.0f,
+                          flashStorage.effectiveLimit(cfg) / 10.0f, cfg.top_ds / 10.0f };
         for (int i = 3; i >= 0; i--) {
             if (steps[i] > pos_sec + 0.1f) {
-                motor.moveTo(steps[i], cfg.overcurrent_a);
+                motor.moveTo(steps[i], cfg.overcurrent_da / 10.0f);
                 break;
             }
         }
     }
     if (input.isSwDownPressed() && flashStorage.isConfigured(cfg)) {
-        float steps[] = { cfg.bottom_sec, cfg.zero_sec,
-                          flashStorage.effectiveLimit(cfg), cfg.top_sec };
+        float steps[] = { cfg.bottom_ds / 10.0f, cfg.zero_ds / 10.0f,
+                          flashStorage.effectiveLimit(cfg) / 10.0f, cfg.top_ds / 10.0f };
         for (int i = 0; i < 4; i++) {
             if (steps[i] < pos_sec - 0.1f) {
-                motor.moveTo(steps[i], cfg.overcurrent_a);
+                motor.moveTo(steps[i], cfg.overcurrent_da / 10.0f);
                 break;
             }
         }
@@ -200,7 +200,7 @@ void updateNormal() {
     // Modbus 목표 위치 처리
     if (modbus.hasNewTarget() && flashStorage.isConfigured(cfg)) {
         float target_sec = percentToPosSec(modbus.getTargetPct(), cfg);
-        motor.moveTo(target_sec, cfg.overcurrent_a);
+        motor.moveTo(target_sec, cfg.overcurrent_da / 10.0f);
         modbus.clearNewTarget();
     }
 }
@@ -245,7 +245,7 @@ void updateSettings() {
                 appState   = AppState::AUTO_SETUP;
                 autoStep   = 0;
                 autoStartMs = autoStepMs = millis();
-                motor.moveTo(-9999.0f, cfg.overcurrent_a);  // 역방향 무한 이동
+                motor.moveTo(-9999.0f, cfg.overcurrent_da / 10.0f);  // 역방향 무한 이동
                 return;
             } else if (settingIndex == 9) {
                 // 공장 초기화
@@ -325,7 +325,7 @@ void loop() {
     input.update();
 
     float current_a = currentSensor.readAmps();
-    motor.update(cfg.overcurrent_a);
+    motor.update(cfg.overcurrent_da / 10.0f);
 
     // 과전류 에러 감지
     if (motor.isError() && appState != AppState::OVERCURRENT_ERROR) {
