@@ -32,8 +32,11 @@ public:
                                               || _state == MotorState::RUNNING
                                               || _state == MotorState::RAMPING_DOWN; }
     bool        isError()        const { return _state == MotorState::OVERCURRENT_ERROR; }
-    void        clearError()           { if (_state == MotorState::OVERCURRENT_ERROR)
-                                             _state = MotorState::IDLE; }
+    void        clearError()           { if (_state == MotorState::OVERCURRENT_ERROR) {
+                                             _target_ds = _position_ds;  // 즉시 재이동 방지
+                                             _pos_frac  = 0;
+                                             _state     = MotorState::IDLE;
+                                         } }
 
     // 위치 강제 설정 (자동 설정에서 사용)
     void setPosition(float sec) {
@@ -52,7 +55,6 @@ private:
     int32_t     _pos_frac;        // 서브-ds 누적 잔여분 (0~99, 100 = 1 ds)
 
     uint32_t    _ramp_start_ms;
-    uint32_t    _ramp_step;
     uint32_t    _last_update_ms;
 
     float       _current_duty;    // 0.0 ~ 1.0

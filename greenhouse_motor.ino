@@ -40,7 +40,6 @@ uint32_t autoStepMs    = 0;
 // 위치 변환
 float   posSecToPercent(float sec, const Settings &s);
 float   percentToPosSec(int pct, const Settings &s);
-void    applyTargetPct(int pct);
 
 // ============================================================
 //  위치 변환 함수
@@ -81,10 +80,16 @@ float getSettingValue(int idx) {
 
 void applySettingValue(int idx, float val) {
     switch (idx) {
-        case 0: cfg.bottom_ds      = (int32_t)roundf(val * 10.0f); break;
-        case 1: cfg.zero_ds        = (int32_t)roundf(val * 10.0f); break;
-        case 2: cfg.top_ds         = (int32_t)roundf(val * 10.0f); break;
-        case 3: cfg.limit_ds       = (int32_t)roundf(val * 10.0f); break;
+        case 0: cfg.bottom_ds      = (int32_t)roundf(constrain(val, 0.0f, 9999.0f) * 10.0f); break;
+        case 1: cfg.zero_ds        = (int32_t)roundf(constrain(val, 0.0f, 9999.0f) * 10.0f); break;
+        case 2: cfg.top_ds         = (int32_t)roundf(constrain(val, 0.1f, 9999.0f) * 10.0f); break;
+        case 3: {
+            // limit은 0(=top과 동일) 또는 (0, top] 범위
+            float top_f = cfg.top_ds / 10.0f;
+            float lim   = constrain(val, 0.0f, top_f);
+            cfg.limit_ds = (int32_t)roundf(lim * 10.0f);
+            break;
+        }
         case 4: cfg.overcurrent_da = (int32_t)roundf(constrain(val, 0.5f, 50.0f) * 10.0f); break;
         case 5: cfg.auto_timeout_s = (uint32_t)constrain(val, 10, 600); break;
         case 6: cfg.slave_id       = (uint8_t)constrain(val, 1, 247); break;
@@ -107,7 +112,6 @@ float settingStep(int idx) {
 //  자동 설정 업데이트
 // ============================================================
 void updateAutoSetup() {
-    float current_a   = currentSensor.readAmps();
     uint32_t now      = millis();
     float elapsed_sec = (now - autoStepMs) / 1000.0f;
     float total_sec   = (now - autoStartMs) / 1000.0f;
@@ -262,6 +266,16 @@ void updateSettings() {
         // 값 편집 모드
         if (delta != 0) {
             editValue += delta * settingStep(settingIndex);
+            // 편집 중 실시간 범위 클램핑
+            switch (settingIndex) {
+                case 0: case 1: editValue = max(editValue, 0.0f); break;
+                case 2: editValue = max(editValue, 0.1f); break;
+                case 3: editValue = constrain(editValue, 0.0f, cfg.top_ds / 10.0f); break;
+                case 4: editValue = constrain(editValue, 0.5f, 50.0f); break;
+                case 5: editValue = constrain(editValue, 10.0f, 600.0f); break;
+                case 6: editValue = constrain(editValue, 1.0f, 247.0f); break;
+                case 7: editValue = constrain(editValue, 0.0f, (float)(BAUD_TABLE_SIZE - 1)); break;
+            }
         }
         if (ev == ButtonEvent::SHORT_PRESS) {
             // 저장

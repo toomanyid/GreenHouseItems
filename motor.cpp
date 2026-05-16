@@ -30,7 +30,6 @@ Motor::Motor()
     , _target_ds(0)
     , _pos_frac(0)
     , _ramp_start_ms(0)
-    , _ramp_step(0)
     , _last_update_ms(0)
     , _current_duty(0.0f)
 {}
@@ -95,7 +94,6 @@ void Motor::moveTo(float target_sec, float overcurrent_a) {
     _dir           = newDir;
     _state         = MotorState::RAMPING_UP;
     _ramp_start_ms = millis();
-    _ramp_step     = 0;
 }
 
 void Motor::stop() {
@@ -133,8 +131,16 @@ void Motor::update(float overcurrent_a) {
     switch (_state) {
 
         case MotorState::RAMPING_UP: {
-            // 과전류 체크 (예외 없음)
             if (checkOvercurrent(overcurrent_a)) return;
+
+            // 램프 중 목표 도달 시 바로 소프트스톱
+            bool arrived = (_dir == MotorDir::FORWARD)
+                           ? (_position_ds >= _target_ds)
+                           : (_position_ds <= _target_ds);
+            if (arrived) {
+                stop();
+                break;
+            }
 
             uint32_t elapsed = now - _ramp_start_ms;
             float    duty    = (float)elapsed / RAMP_TIME_MS;
@@ -184,7 +190,6 @@ void Motor::update(float overcurrent_a) {
                 _dir           = (_target_ds > _position_ds) ? MotorDir::FORWARD : MotorDir::REVERSE;
                 _state         = MotorState::RAMPING_UP;
                 _ramp_start_ms = millis();
-                _ramp_step     = 0;
             }
             break;
         }
