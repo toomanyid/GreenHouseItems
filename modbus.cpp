@@ -107,6 +107,7 @@ void ModbusRTU::respondFC06(uint8_t *frame, Settings &cfg, bool broadcast) {
         case HR_SLAVE_ID:
             if (val < 1 || val > 247) { if (!broadcast) respondException(0x06, 0x03); return; }
             cfg.slave_id = (uint8_t)val;
+            _slave_id    = cfg.slave_id;  // 즉시 반영
             flashStorage.save(cfg);
             break;
         case HR_BAUD_CODE:
@@ -141,6 +142,7 @@ void ModbusRTU::respondFC16(uint8_t *frame, Settings &cfg, bool broadcast) {
             case HR_SLAVE_ID:
                 if (val < 1 || val > 247) { if (!broadcast) respondException(0x10, 0x03); return; }
                 cfg.slave_id = (uint8_t)val;
+                _slave_id    = cfg.slave_id;  // 즉시 반영
                 break;
             case HR_BAUD_CODE:
                 if (val >= BAUD_TABLE_SIZE) { if (!broadcast) respondException(0x10, 0x03); return; }

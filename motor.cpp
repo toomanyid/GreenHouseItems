@@ -1,5 +1,4 @@
 #include "motor.h"
-#include "current_sensor.h"
 #include <hardware/pwm.h>
 
 Motor motor;
@@ -67,8 +66,8 @@ void Motor::setDuty(MotorDir dir, float duty) {
     }
 }
 
-bool Motor::checkOvercurrent(float threshold_a) {
-    if (currentSensor.isOvercurrent(threshold_a)) {
+bool Motor::checkOvercurrent(float current_a, float threshold_a) {
+    if (current_a > threshold_a) {
         emergencyStop();
         _state = MotorState::OVERCURRENT_ERROR;
         return true;
@@ -109,7 +108,7 @@ void Motor::emergencyStop() {
     _pos_frac = 0;
 }
 
-void Motor::update(float overcurrent_a) {
+void Motor::update(float current_a, float overcurrent_a) {
     uint32_t now    = millis();
     int32_t  dt_ms  = (int32_t)(now - _last_update_ms);
     _last_update_ms = now;
@@ -131,7 +130,7 @@ void Motor::update(float overcurrent_a) {
     switch (_state) {
 
         case MotorState::RAMPING_UP: {
-            if (checkOvercurrent(overcurrent_a)) return;
+            if (checkOvercurrent(current_a, overcurrent_a)) return;
 
             // 램프 중 목표 도달 시 바로 소프트스톱
             bool arrived = (_dir == MotorDir::FORWARD)
@@ -154,7 +153,7 @@ void Motor::update(float overcurrent_a) {
 
         case MotorState::RUNNING: {
             // 과전류 체크
-            if (checkOvercurrent(overcurrent_a)) return;
+            if (checkOvercurrent(current_a, overcurrent_a)) return;
 
             // 목표 위치 도달 확인
             bool arrived = (_dir == MotorDir::FORWARD)
@@ -168,7 +167,7 @@ void Motor::update(float overcurrent_a) {
 
         case MotorState::RAMPING_DOWN: {
             // 과전류 체크 (램프 중도 예외 없음)
-            if (checkOvercurrent(overcurrent_a)) return;
+            if (checkOvercurrent(current_a, overcurrent_a)) return;
 
             uint32_t elapsed = now - _ramp_start_ms;
             float    duty    = 1.0f - (float)elapsed / RAMP_TIME_MS;

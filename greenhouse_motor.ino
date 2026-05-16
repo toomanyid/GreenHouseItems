@@ -111,7 +111,7 @@ float settingStep(int idx) {
 // ============================================================
 //  자동 설정 업데이트
 // ============================================================
-void updateAutoSetup() {
+void updateAutoSetup(float current_a) {
     uint32_t now      = millis();
     float elapsed_sec = (now - autoStepMs) / 1000.0f;
     float total_sec   = (now - autoStartMs) / 1000.0f;
@@ -127,7 +127,7 @@ void updateAutoSetup() {
 
     if (autoStep == 0) {
         // 1단계: 역방향 이동 → 전류 없을 때까지
-        if (currentSensor.isZero() && elapsed_sec > 1.0f) {
+        if (current_a < CURRENT_ZERO_THR && elapsed_sec > 1.0f) {
             // bottom 도달
             motor.emergencyStop();
             motor.setPosition(0.0f);
@@ -141,10 +141,10 @@ void updateAutoSetup() {
         }
     } else {
         // 2단계: 정방향 이동 → 전류 없을 때까지
-        if (currentSensor.isZero() && elapsed_sec > 1.0f) {
-            // top 도달
+        if (current_a < CURRENT_ZERO_THR && elapsed_sec > 1.0f) {
+            // top 도달 — 모터가 추적한 실제 위치로 저장 (경과 시간은 duty 기반 위치와 불일치)
             motor.emergencyStop();
-            cfg.top_ds   = (int32_t)roundf(elapsed_sec * 10.0f);
+            cfg.top_ds   = (int32_t)roundf(motor.getPositionSec() * 10.0f);
             cfg.limit_ds = 0;  // top과 동일
 
             flashStorage.save(cfg);
@@ -163,7 +163,7 @@ void updateNormal() {
     // 엔코더: 목표 위치 조정 (초 단위)
     int delta = input.getEncoderDelta();
     if (delta != 0 && flashStorage.isConfigured(cfg)) {
-        float target = motor.getPositionSec() + delta * 0.5f;
+        float target = pos_sec + delta * 0.5f;
         target = constrain(target, cfg.bottom_ds / 10.0f,
                            flashStorage.effectiveLimit(cfg) / 10.0f);
         motor.moveTo(target, cfg.overcurrent_da / 10.0f);
@@ -339,7 +339,7 @@ void loop() {
     input.update();
 
     float current_a = currentSensor.readAmps();
-    motor.update(cfg.overcurrent_da / 10.0f);
+    motor.update(current_a, cfg.overcurrent_da / 10.0f);
 
     // 과전류 에러 감지
     if (motor.isError() && appState != AppState::OVERCURRENT_ERROR) {
@@ -363,7 +363,7 @@ void loop() {
             break;
 
         case AppState::AUTO_SETUP:
-            updateAutoSetup();
+            updateAutoSetup(current_a);
             break;
 
         case AppState::OVERCURRENT_ERROR:

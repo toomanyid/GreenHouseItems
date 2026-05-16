@@ -21,8 +21,8 @@ public:
     void stop();                                          // 즉시 소프트스톱 시작
     void emergencyStop();                                 // 즉시 강제 정지
 
-    // 루프에서 매번 호출
-    void update(float overcurrent_a);
+    // 루프에서 매번 호출 (current_a: 이미 읽은 전류값, overcurrent_a: 임계값)
+    void update(float current_a, float overcurrent_a);
 
     // 상태 조회
     MotorState  getState()       const { return _state; }
@@ -61,7 +61,7 @@ private:
 
     void        setDuty(MotorDir dir, float duty);
     void        setPWM(uint8_t pin_a, uint8_t pin_b, float duty_a, float duty_b);
-    bool        checkOvercurrent(float threshold_a);
+    bool        checkOvercurrent(float current_a, float threshold_a);
 };
 
 extern Motor motor;
