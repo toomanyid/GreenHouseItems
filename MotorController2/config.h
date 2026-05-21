@@ -65,7 +65,7 @@ const uint16_t STATUS_LIMIT    = (1 << 3);
 // ============================================================
 //  설정값 기본값
 // ============================================================
-const float    DEFAULT_OVERCURRENT_A  = 2.0f;   // 과전류 임계 2A
+const int32_t  DEFAULT_OVERCURRENT_DA = 20;     // 과전류 임계 2.0A (0.1A 단위)
 const uint32_t DEFAULT_AUTO_TIMEOUT_S = 300;    // 자동설정 최대 5분
 const uint8_t  DEFAULT_BAUD_CODE      = 0;      // 9600bps
 const uint8_t  DEFAULT_SLAVE_ID       = 1;

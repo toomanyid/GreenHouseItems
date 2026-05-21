@@ -31,8 +31,8 @@ private:
     // 응답 함수
     void     respondFC03(uint8_t *frame, Settings &cfg);
     void     respondFC04(uint8_t *frame, float pos_pct, uint16_t status, float current_a);
-    void     respondFC06(uint8_t *frame, Settings &cfg);
-    void     respondFC16(uint8_t *frame, Settings &cfg);
+    void     respondFC06(uint8_t *frame, Settings &cfg, bool broadcast);
+    void     respondFC16(uint8_t *frame, Settings &cfg, bool broadcast);
     void     respondException(uint8_t fc, uint8_t code);
 };
 

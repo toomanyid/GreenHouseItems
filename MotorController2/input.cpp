@@ -19,7 +19,7 @@ void InputHandler::begin() {
     pinMode(PIN_SW_UP,  INPUT_PULLUP);
     pinMode(PIN_SW_DOWN,INPUT_PULLUP);
 
-    _enc_last = (digitalRead(PIN_ENC_A) << 1) | digitalRead(PIN_ENC_B);
+    _enc_last = (!digitalRead(PIN_ENC_A) << 1) | !digitalRead(PIN_ENC_B);
 }
 
 void InputHandler::debounce(BtnState &btn, bool raw_active) {

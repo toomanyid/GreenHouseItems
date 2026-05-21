@@ -43,11 +43,11 @@ bool FlashStorage::save(const Settings &s) {
 
 void FlashStorage::reset(Settings &s) {
     s.magic          = SETTINGS_MAGIC;
-    s.bottom_sec     = -1.0f;   // 미설정 표시
-    s.zero_sec       = -1.0f;
-    s.top_sec        = -1.0f;
-    s.limit_sec      = 0.0f;    // 0 = top과 동일
-    s.overcurrent_a  = DEFAULT_OVERCURRENT_A;
+    s.bottom_ds      = -1;   // 미설정 표시
+    s.zero_ds        = -1;
+    s.top_ds         = -1;
+    s.limit_ds       = 0;    // 0 = top과 동일
+    s.overcurrent_da = DEFAULT_OVERCURRENT_DA;
     s.auto_timeout_s = DEFAULT_AUTO_TIMEOUT_S;
     s.slave_id       = DEFAULT_SLAVE_ID;
     s.baud_code      = DEFAULT_BAUD_CODE;
@@ -58,13 +58,13 @@ void FlashStorage::reset(Settings &s) {
 
 bool FlashStorage::isConfigured(const Settings &s) {
     // 필수값: bottom, zero, top 이 모두 0 이상이어야 함
-    if (s.bottom_sec < 0.0f) return false;
-    if (s.zero_sec   < 0.0f) return false;
-    if (s.top_sec    <= 0.0f) return false;
+    if (s.bottom_ds < 0) return false;
+    if (s.zero_ds   < 0) return false;
+    if (s.top_ds    <= 0) return false;
     return true;
 }
 
-float FlashStorage::effectiveLimit(const Settings &s) {
-    if (s.limit_sec <= 0.0f) return s.top_sec;
-    return s.limit_sec;
+int32_t FlashStorage::effectiveLimit(const Settings &s) {
+    if (s.limit_ds <= 0) return s.top_ds;
+    return s.limit_ds;
 }

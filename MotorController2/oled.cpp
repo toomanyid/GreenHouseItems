@@ -52,7 +52,7 @@ void OledDisplay::showNormal(float pos_sec) {
     if (pos_sec >= 0) {
         snprintf(buf, sizeof(buf), "%5.1f", pos_sec);
     } else {
-        snprintf(buf, sizeof(buf), "%5.1f", pos_sec);
+        snprintf(buf, sizeof(buf), " ---");
     }
     int16_t x1, y1; uint16_t w, h;
     _dsp.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
@@ -115,11 +115,11 @@ void OledDisplay::showSettings(const Settings &cfg, int selected_item,
             snprintf(vbuf, sizeof(vbuf), ">%.1f<", edit_val);
         } else {
             switch (idx) {
-                case 0: snprintf(vbuf, sizeof(vbuf), "%.1f", cfg.bottom_sec < 0 ? 0 : cfg.bottom_sec); break;
-                case 1: snprintf(vbuf, sizeof(vbuf), "%.1f", cfg.zero_sec   < 0 ? 0 : cfg.zero_sec);   break;
-                case 2: snprintf(vbuf, sizeof(vbuf), "%.1f", cfg.top_sec    < 0 ? 0 : cfg.top_sec);    break;
-                case 3: snprintf(vbuf, sizeof(vbuf), "%.1f", cfg.limit_sec <= 0 ? cfg.top_sec : cfg.limit_sec); break;
-                case 4: snprintf(vbuf, sizeof(vbuf), "%.1f", cfg.overcurrent_a); break;
+                case 0: snprintf(vbuf, sizeof(vbuf), "%.1f", (cfg.bottom_ds < 0 ? 0 : cfg.bottom_ds) / 10.0f); break;
+                case 1: snprintf(vbuf, sizeof(vbuf), "%.1f", (cfg.zero_ds   < 0 ? 0 : cfg.zero_ds)   / 10.0f); break;
+                case 2: snprintf(vbuf, sizeof(vbuf), "%.1f", (cfg.top_ds    < 0 ? 0 : cfg.top_ds)    / 10.0f); break;
+                case 3: snprintf(vbuf, sizeof(vbuf), "%.1f", (cfg.limit_ds <= 0 ? cfg.top_ds : cfg.limit_ds) / 10.0f); break;
+                case 4: snprintf(vbuf, sizeof(vbuf), "%.1f", cfg.overcurrent_da / 10.0f); break;
                 case 5: snprintf(vbuf, sizeof(vbuf), "%lu",  cfg.auto_timeout_s); break;
                 case 6: snprintf(vbuf, sizeof(vbuf), "%d",   cfg.slave_id); break;
                 case 7: {

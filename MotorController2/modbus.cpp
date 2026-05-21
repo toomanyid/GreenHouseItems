@@ -94,71 +94,76 @@ void ModbusRTU::respondFC04(uint8_t *frame, float pos_pct, uint16_t status, floa
     sendResponse(resp, 3 + count * 2);
 }
 
-void ModbusRTU::respondFC06(uint8_t *frame, Settings &cfg) {
+void ModbusRTU::respondFC06(uint8_t *frame, Settings &cfg, bool broadcast) {
     uint16_t addr = ((uint16_t)frame[2] << 8) | frame[3];
     uint16_t val  = ((uint16_t)frame[4] << 8) | frame[5];
 
     switch (addr) {
         case HR_TARGET_POS:
-            if (val > 100) { respondException(0x06, 0x03); return; }
+            if (val > 100) { if (!broadcast) respondException(0x06, 0x03); return; }
             _target_pct = val;
             _new_target = true;
             break;
         case HR_SLAVE_ID:
-            if (val < 1 || val > 247) { respondException(0x06, 0x03); return; }
+            if (val < 1 || val > 247) { if (!broadcast) respondException(0x06, 0x03); return; }
             cfg.slave_id = (uint8_t)val;
+            _slave_id    = cfg.slave_id;  // 즉시 반영
             flashStorage.save(cfg);
             break;
         case HR_BAUD_CODE:
-            if (val >= BAUD_TABLE_SIZE) { respondException(0x06, 0x03); return; }
+            if (val >= BAUD_TABLE_SIZE) { if (!broadcast) respondException(0x06, 0x03); return; }
             cfg.baud_code = (uint8_t)val;
             flashStorage.save(cfg);
             break;
         default:
-            respondException(0x06, 0x02);
+            if (!broadcast) respondException(0x06, 0x02);
             return;
     }
-    // 에코 응답
-    sendResponse(frame, 6);
+    // 에코 응답 (브로드캐스트는 응답 없음)
+    if (!broadcast) sendResponse(frame, 6);
 }
 
-void ModbusRTU::respondFC16(uint8_t *frame, Settings &cfg) {
+void ModbusRTU::respondFC16(uint8_t *frame, Settings &cfg, bool broadcast) {
     uint16_t start     = ((uint16_t)frame[2] << 8) | frame[3];
     uint16_t count     = ((uint16_t)frame[4] << 8) | frame[5];
     uint8_t  byte_cnt  = frame[6];
 
-    if (byte_cnt != count * 2) { respondException(0x10, 0x03); return; }
+    if (byte_cnt != count * 2) { if (!broadcast) respondException(0x10, 0x03); return; }
 
     for (uint16_t i = 0; i < count; i++) {
         uint16_t val  = ((uint16_t)frame[7 + i*2] << 8) | frame[8 + i*2];
         uint16_t addr = start + i;
         switch (addr) {
             case HR_TARGET_POS:
-                if (val > 100) { respondException(0x10, 0x03); return; }
+                if (val > 100) { if (!broadcast) respondException(0x10, 0x03); return; }
                 _target_pct = val;
                 _new_target = true;
                 break;
             case HR_SLAVE_ID:
-                if (val < 1 || val > 247) { respondException(0x10, 0x03); return; }
+                if (val < 1 || val > 247) { if (!broadcast) respondException(0x10, 0x03); return; }
                 cfg.slave_id = (uint8_t)val;
+                _slave_id    = cfg.slave_id;  // 즉시 반영
                 break;
             case HR_BAUD_CODE:
-                if (val >= BAUD_TABLE_SIZE) { respondException(0x10, 0x03); return; }
+                if (val >= BAUD_TABLE_SIZE) { if (!broadcast) respondException(0x10, 0x03); return; }
                 cfg.baud_code = (uint8_t)val;
                 break;
             default:
-                respondException(0x10, 0x02);
+                if (!broadcast) respondException(0x10, 0x02);
                 return;
         }
     }
     flashStorage.save(cfg);
 
-    uint8_t resp[6];
-    resp[0] = _slave_id;
-    resp[1] = 0x10;
-    resp[2] = frame[2]; resp[3] = frame[3];
-    resp[4] = frame[4]; resp[5] = frame[5];
-    sendResponse(resp, 6);
+    // 응답 (브로드캐스트는 응답 없음)
+    if (!broadcast) {
+        uint8_t resp[6];
+        resp[0] = _slave_id;
+        resp[1] = 0x10;
+        resp[2] = frame[2]; resp[3] = frame[3];
+        resp[4] = frame[4]; resp[5] = frame[5];
+        sendResponse(resp, 6);
+    }
 }
 
 void ModbusRTU::processFrame(uint8_t *frame, uint8_t len,
@@ -177,23 +182,23 @@ void ModbusRTU::processFrame(uint8_t *frame, uint8_t len,
     switch (fc) {
         case 0x03: if (!broadcast) respondFC03(frame, cfg);                          break;
         case 0x04: if (!broadcast) respondFC04(frame, pos_pct, status, current_a);  break;
-        case 0x06: respondFC06(frame, cfg); break;
-        case 0x10: respondFC16(frame, cfg); break;
+        case 0x06: respondFC06(frame, cfg, broadcast); break;
+        case 0x10: respondFC16(frame, cfg, broadcast); break;
         default:   if (!broadcast) respondException(fc, 0x01); break;
     }
 }
 
 void ModbusRTU::update(Settings &cfg, float pos_pct, uint16_t status, float current_a) {
-    uint32_t now_us = micros();
-
     while (Serial1.available()) {
         if (_buf_len < sizeof(_buf)) {
             _buf[_buf_len++] = Serial1.read();
         } else {
             Serial1.read();  // 버퍼 초과 시 버림
         }
-        _last_rx_us = now_us;
+        _last_rx_us = micros();  // 바이트 수신 즉시 시각 갱신
     }
+
+    uint32_t now_us = micros();
 
     // 3.5 문자 시간 침묵 → 프레임 완성
     if (_buf_len > 0) {

@@ -1,5 +1,4 @@
 #include "motor.h"
-#include "current_sensor.h"
 #include <hardware/pwm.h>
 
 Motor motor;
@@ -26,10 +25,10 @@ static void rp2040_pwm_set(uint8_t pin, float duty) {
 Motor::Motor()
     : _state(MotorState::IDLE)
     , _dir(MotorDir::STOP)
-    , _position_sec(0.0f)
-    , _target_sec(0.0f)
+    , _position_ds(0)
+    , _target_ds(0)
+    , _pos_frac(0)
     , _ramp_start_ms(0)
-    , _ramp_step(0)
     , _last_update_ms(0)
     , _current_duty(0.0f)
 {}
@@ -67,8 +66,8 @@ void Motor::setDuty(MotorDir dir, float duty) {
     }
 }
 
-bool Motor::checkOvercurrent(float threshold_a) {
-    if (currentSensor.isOvercurrent(threshold_a)) {
+bool Motor::checkOvercurrent(float current_a, float threshold_a) {
+    if (current_a > threshold_a) {
         emergencyStop();
         _state = MotorState::OVERCURRENT_ERROR;
         return true;
@@ -79,11 +78,11 @@ bool Motor::checkOvercurrent(float threshold_a) {
 void Motor::moveTo(float target_sec, float overcurrent_a) {
     if (_state == MotorState::OVERCURRENT_ERROR) return;
 
-    _target_sec = target_sec;
+    _target_ds = (int32_t)roundf(target_sec * 10.0f);
 
-    if (fabsf(target_sec - _position_sec) < 0.05f) return;  // 이미 목표 위치
+    if (abs(_target_ds - _position_ds) < 1) return;  // 이미 목표 위치 (0.1초 이내)
 
-    MotorDir newDir = (target_sec > _position_sec) ? MotorDir::FORWARD : MotorDir::REVERSE;
+    MotorDir newDir = (_target_ds > _position_ds) ? MotorDir::FORWARD : MotorDir::REVERSE;
 
     // 방향 전환이면 먼저 정지
     if (isMoving() && newDir != _dir) {
@@ -94,7 +93,6 @@ void Motor::moveTo(float target_sec, float overcurrent_a) {
     _dir           = newDir;
     _state         = MotorState::RAMPING_UP;
     _ramp_start_ms = millis();
-    _ramp_step     = 0;
 }
 
 void Motor::stop() {
@@ -105,27 +103,43 @@ void Motor::stop() {
 
 void Motor::emergencyStop() {
     setDuty(MotorDir::STOP, 0.0f);
-    _dir   = MotorDir::STOP;
-    _state = MotorState::IDLE;
+    _dir      = MotorDir::STOP;
+    _state    = MotorState::IDLE;
+    _pos_frac = 0;
 }
 
-void Motor::update(float overcurrent_a) {
-    uint32_t now = millis();
-    float    dt  = (now - _last_update_ms) / 1000.0f;
+void Motor::update(float current_a, float overcurrent_a) {
+    uint32_t now    = millis();
+    int32_t  dt_ms  = (int32_t)(now - _last_update_ms);
     _last_update_ms = now;
 
     // 위치 누적 (이동 중일 때)
-    if (_dir == MotorDir::FORWARD && _current_duty > 0.01f) {
-        _position_sec += dt * _current_duty;
-    } else if (_dir == MotorDir::REVERSE && _current_duty > 0.01f) {
-        _position_sec -= dt * _current_duty;
+    // _pos_frac 단위: dt_ms × duty (100 누적 = 1 ds = 0.1초)
+    if (_current_duty > 0.01f && _dir != MotorDir::STOP) {
+        _pos_frac += (int32_t)(dt_ms * _current_duty);
+        if (_pos_frac >= 100) {
+            int32_t ds = _pos_frac / 100;
+            _pos_frac %= 100;
+            if (_dir == MotorDir::FORWARD) _position_ds += ds;
+            else                           _position_ds -= ds;
+        }
+    } else {
+        _pos_frac = 0;
     }
 
     switch (_state) {
 
         case MotorState::RAMPING_UP: {
-            // 과전류 체크 (예외 없음)
-            if (checkOvercurrent(overcurrent_a)) return;
+            if (checkOvercurrent(current_a, overcurrent_a)) return;
+
+            // 램프 중 목표 도달 시 바로 소프트스톱
+            bool arrived = (_dir == MotorDir::FORWARD)
+                           ? (_position_ds >= _target_ds)
+                           : (_position_ds <= _target_ds);
+            if (arrived) {
+                stop();
+                break;
+            }
 
             uint32_t elapsed = now - _ramp_start_ms;
             float    duty    = (float)elapsed / RAMP_TIME_MS;
@@ -139,12 +153,12 @@ void Motor::update(float overcurrent_a) {
 
         case MotorState::RUNNING: {
             // 과전류 체크
-            if (checkOvercurrent(overcurrent_a)) return;
+            if (checkOvercurrent(current_a, overcurrent_a)) return;
 
             // 목표 위치 도달 확인
             bool arrived = (_dir == MotorDir::FORWARD)
-                           ? (_position_sec >= _target_sec)
-                           : (_position_sec <= _target_sec);
+                           ? (_position_ds >= _target_ds)
+                           : (_position_ds <= _target_ds);
             if (arrived) {
                 stop();
             }
@@ -153,20 +167,32 @@ void Motor::update(float overcurrent_a) {
 
         case MotorState::RAMPING_DOWN: {
             // 과전류 체크 (램프 중도 예외 없음)
-            if (checkOvercurrent(overcurrent_a)) return;
+            if (checkOvercurrent(current_a, overcurrent_a)) return;
 
             uint32_t elapsed = now - _ramp_start_ms;
             float    duty    = 1.0f - (float)elapsed / RAMP_TIME_MS;
             if (duty <= 0.0f) {
-                duty   = 0.0f;
-                _state = MotorState::IDLE;
-                _dir   = MotorDir::STOP;
+                duty      = 0.0f;
+                _state    = MotorState::IDLE;
+                _dir      = MotorDir::STOP;
+                _pos_frac = 0;
             }
             setDuty(_dir, duty);
             break;
         }
 
-        case MotorState::IDLE:
+        case MotorState::IDLE: {
+            setDuty(MotorDir::STOP, 0.0f);
+            // 방향 전환 후 정지 완료 시 남은 목표로 재이동
+            if (abs(_target_ds - _position_ds) >= 1) {
+                _pos_frac      = 0;
+                _dir           = (_target_ds > _position_ds) ? MotorDir::FORWARD : MotorDir::REVERSE;
+                _state         = MotorState::RAMPING_UP;
+                _ramp_start_ms = millis();
+            }
+            break;
+        }
+
         case MotorState::OVERCURRENT_ERROR:
         default:
             setDuty(MotorDir::STOP, 0.0f);
