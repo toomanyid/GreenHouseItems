@@ -151,20 +151,14 @@ static void test_sensor_filter() {
     SensorFilter f;
     f.begin(0);
     uint32_t t = 0;
-    for (; t < 90; t += 10) f.update(true, false, t);
+    for (; t < 90; t += 10) f.update(true, t);
     CHECK(f.value() == SensorState::UNKNOWN);               // 0.1초가 안 됨
-    for (; t <= 110; t += 10) f.update(true, false, t);
+    for (; t <= 110; t += 10) f.update(true, t);
     CHECK(f.value() == SensorState::PRESENT);
-    for (; t <= 400; t += 10) f.update(false, false, t);    // 둘 다 열림 0.3초: 그대로
+    f.update(false, t); t += 10;                             // 한 번 튐: 무시
+    f.update(true, t);  t += 10;
     CHECK(f.value() == SensorState::PRESENT);
-    CHECK(!f.contactsValid());
-    for (; t <= 700; t += 10) f.update(false, false, t);    // 0.5초 넘음: 모름
-    CHECK(f.value() == SensorState::UNKNOWN);
-    for (uint32_t e = t + 150; t <= e; t += 10) f.update(false, true, t);
-    CHECK(f.value() == SensorState::ABSENT);
-    f.update(true, false, t);                                // 한 번 튐: 무시
-    t += 10;
-    f.update(false, true, t);
+    for (uint32_t e = t + 110; t <= e; t += 10) f.update(false, t);
     CHECK(f.value() == SensorState::ABSENT);
 }
 
@@ -252,7 +246,6 @@ struct DSim {
         for (int i = 0; i < 2; i++) {
             in.currentMa[i] = p[i].current(out.dir[i], out.duty[i]);
             in.sensor[i] = p[i].u < p[i].sensorAt ? SensorState::PRESENT : SensorState::ABSENT;
-            in.contactsValid[i] = true;
         }
         in.relayMv = (out.fetA && out.fetB) || relayStuck ? 24000 : 0;
         in.estopMv = estopMv;
@@ -284,11 +277,11 @@ static void test_dispatcher_boot_and_move() {
     Job j = {};
     j.type = JobType::MOVE; j.source = JobSource::ENCODER; j.window = 0; j.target = 5000;
     CHECK(!s.d.job(j, s.now));                               // 점검 전에는 받지 않음
-    s.run(3100);
+    s.run(2100);
     CHECK(s.d.bootDone());
     Status status;
     s.d.fillStatus(status);
-    CHECK(status.win[0].sensorFound && status.win[1].sensorFound);
+    CHECK(status.win[0].sensorFound && status.win[1].sensorFound);   // 하한에 있어 입력이 ON
     CHECK(status.temp.found && status.temp.valid && status.temp.temp == 250);
     CHECK(!status.relayFault);
 

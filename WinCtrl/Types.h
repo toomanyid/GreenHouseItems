@@ -7,7 +7,7 @@
 // ============================================================
 enum class Model : uint8_t { W50, W300 };
 
-// 원점 센서 판정 결과: 있음(레버 눌림, 원점 높이 아래), 없음, 모름(접점 조합 이상)
+// 원점 센서 입력: 있음(ON, 원점 높이 아래), 없음(OFF), 모름(전원 켠 직후 첫 판정 전)
 enum class SensorState : uint8_t { UNKNOWN, PRESENT, ABSENT };
 
 enum class WinState : uint8_t {
@@ -48,7 +48,7 @@ struct Job {
 enum class AlertType : uint8_t {
     STOP_ALL,         // 전체 정지
     CLEAR_FAULT,      // 고장 해제 (window, 공통이면 0xFF)
-    RECHECK_SENSOR,   // 원점 센서 에러 확인 후 다시 확인
+    RECHECK_SENSOR,   // 원점 센서 에러 확인: 센서 판단을 처음으로
     RESTORE_FAULT,    // 전원 켤 때 미확인 고장으로 시작
     SENSOR_HISTORY,   // 이 창의 원점 센서 에러 기록이 있음
     MENU_ENTER,       // 설정 메뉴 들어감 (온도제어 멈춤)
@@ -129,7 +129,8 @@ struct WindowStatus {
     int8_t      nextDir;        // REVERSE_WAIT 뒤 방향
     Cause       fault;          // FAULT 원인
     bool        configured;     // 이동을 받을 수 있는 설정인지
-    bool        sensorFound;    // 전원 켤 때 감지 결과
+    bool        sensorFound;    // 원점 센서 "있음"으로 정해짐 (입력이 ON이 됨)
+    bool        sensorAbsent;   // "없음"으로 정해짐 (OFF인 채로 하한). 둘 다 false면 아직 모름
     bool        sensorActive;   // 지금 센서로 원점을 잡는지
     bool        sensorError;    // 원점 센서 에러 표시 중
     SensorState sensor;

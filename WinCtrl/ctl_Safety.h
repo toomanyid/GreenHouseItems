@@ -89,32 +89,21 @@ private:
     uint32_t _since = 0;
 };
 
-// 원점 센서 접점 두 개(NO, NC)를 "있음/없음/모름"으로 (스펙 6절, 10절)
-//   NO 닫힘 + NC 열림 = 있음 (레버 눌림), NO 열림 + NC 닫힘 = 없음.
-//   같은 결과가 0.1초 이어져야 바뀐다. 둘 다 열림/닫힘이 0.5초 넘게 이어지면 모름.
+// 원점 센서 on/off 입력 하나를 "있음(ON)/없음(OFF)"으로 (스펙 6절, 10절)
+//   같은 값이 0.1초 이어져야 바뀐다. 전원 켠 뒤 첫 판정 전에는 UNKNOWN.
+//   단선은 OFF와 구분되지 않으므로 ctl_Window의 위치 확인으로 잡는다.
 class SensorFilter {
 public:
-    void begin(uint32_t now) { _value = SensorState::UNKNOWN; _cand = SensorState::UNKNOWN; _since = now; _badSince = now; _valid = false; }
-    SensorState update(bool noClosed, bool ncClosed, uint32_t now) {
-        _valid = noClosed != ncClosed;
-        if (_valid) {
-            SensorState raw = noClosed ? SensorState::PRESENT : SensorState::ABSENT;
-            _badSince = now;
-            if (raw != _cand) { _cand = raw; _since = now; }
-            if (_value != _cand && now - _since >= SENSOR_DEBOUNCE_MS) _value = _cand;
-        } else {
-            _cand = SensorState::UNKNOWN;
-            _since = now;
-            if (now - _badSince >= SENSOR_INVALID_MS) _value = SensorState::UNKNOWN;
-        }
+    void begin(uint32_t now) { _value = SensorState::UNKNOWN; _cand = SensorState::UNKNOWN; _since = now; }
+    SensorState update(bool on, uint32_t now) {
+        SensorState raw = on ? SensorState::PRESENT : SensorState::ABSENT;
+        if (raw != _cand) { _cand = raw; _since = now; }
+        if (_value != _cand && now - _since >= SENSOR_DEBOUNCE_MS) _value = _cand;
         return _value;
     }
-    SensorState value() const    { return _value; }
-    bool contactsValid() const   { return _valid; }   // 지금 순간 하나만 닫혀 있는지
+    SensorState value() const { return _value; }
 private:
     SensorState _value = SensorState::UNKNOWN;
     SensorState _cand = SensorState::UNKNOWN;
     uint32_t    _since = 0;
-    uint32_t    _badSince = 0;
-    bool        _valid = false;
 };

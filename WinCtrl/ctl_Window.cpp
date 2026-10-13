@@ -26,8 +26,10 @@ bool Window::configured() const {
     if (_s.upTime < 0 || _s.downTime < 0) return false;
     if (_s.iMaxUp < 0 || _s.iMaxDn < 0) return false;
     if (maxRunMs() == 0) return false;
-    if (sensorActive()) return _s.overlap >= 0;
-    return _s.homeTime >= 0;
+    if (!sensorActive()) return _s.homeTime >= 0;
+    // 센서 유무가 아직 정해지지 않았으면 어느 쪽 설정이든 갖춰져 있으면 받는다
+    if (_known == Known::UNDECIDED) return _s.overlap >= 0 || _s.homeTime >= 0;
+    return _s.overlap >= 0;
 }
 
 // ============================================================
@@ -55,9 +57,12 @@ void Window::settingsChanged(const WindowSettings& s, bool timesChanged, bool ca
     if (_state == WinState::IDLE || _state == WinState::LIMIT) settleIdle();
 }
 
-void Window::setSensorHistory() {
-    // 에러 기록이 있고 설정이 "자동"인데 센서가 없으면 다시 에러를 낸다 (스펙 10절)
-    if (_s.homeSensAuto && !_sensorFound) {
+// OFF인 채로 처음 하한에 닿음: 센서 "없음"으로 정한다 (스펙 10절)
+void Window::decideAbsentAtBottom(uint32_t now) {
+    (void)now;
+    _known = Known::ABSENT;
+    // 에러 기록이 있고 설정이 "자동"인데 센서가 없으면 다시 에러를 내고 없는 것처럼 동작한다
+    if (_sensorHistory) {
         _sensorErrMode = true;
         pushEvent(Cause::HOME_SENSOR);
     }
@@ -127,11 +132,11 @@ void Window::restoreFault(Cause c) {
     _fPhase = FaultPhase::HOLD;
 }
 
-void Window::recheckSensor(uint32_t now) {
-    if (!_s.homeSensAuto) { _sensorErrMode = false; return; }
-    _recheck = true;
-    _recheckBad = false;
-    _recheckMs = now;
+void Window::recheckSensor() {
+    // 센서 판단을 처음으로 돌린다. 여전히 하한에서 OFF거나 위치 확인에서 어긋나면 다시 에러가 난다
+    _sensorErrMode = false;
+    _known = Known::UNDECIDED;
+    _sensorHistory = true;
 }
 
 void Window::setEstop(bool on, uint32_t now) {
@@ -199,24 +204,10 @@ WindowOutputs Window::tick(const WindowInputs& in) {
     // 4. 구동 중 판정
     if (_dir != 0 && !_waitRelay) checkRunning(in);
 
-    // 5. 원점 센서 다시 확인 (에러 확인 뒤 3초)
-    if (_recheck) {
-        if (!in.contactsValid) _recheckBad = true;
-        if (now - _recheckMs >= SENSOR_DETECT_MS) {
-            _recheck = false;
-            if (_recheckBad) {
-                pushEvent(Cause::HOME_SENSOR);
-            } else {
-                _sensorErrMode = false;
-                _sensorFound = true;   // 다음에 올라가며 센서를 지날 때부터 다시 센서로 맞춘다
-            }
-        }
-    }
-
-    // 6. 다음 목표
+    // 5. 다음 목표
     applyPending(now);
 
-    // 7. 현재 상태의 일
+    // 6. 현재 상태의 일
     switch (_state) {
     case WinState::IDLE:         break;
     case WinState::LIMIT:        break;
@@ -229,7 +220,7 @@ WindowOutputs Window::tick(const WindowInputs& in) {
     case WinState::FAULT:        tickFault(in); break;
     }
 
-    // 8. 출력 (소프트 스타트: 0에서 100%까지 일정하게)
+    // 7. 출력 (소프트 스타트: 0에서 100%까지 일정하게)
     if (_dir != 0 && !_waitRelay) {
         uint32_t r = now - _driveStartMs;
         _duty = r >= SOFT_START_MS ? DUTY_FULL : (uint16_t)(r * DUTY_FULL / SOFT_START_MS);
@@ -344,6 +335,8 @@ void Window::beginGoal(uint32_t now) {
         startState(WinState::CLOSING, -1, now);
         return;
     case Goal::TARGET:
+        // 하한에서 센서 "없음"으로 정해졌는데 원점 시간이 없으면 CLOSE 외에는 가지 않는다
+        if (!configured()) { _goal = Goal::NONE; settleIdle(); return; }
         if (needHoming()) { startHoming(now); return; }
         if (_posState == PosState::CLOSED) {
             if (sensorActive()) {
@@ -465,12 +458,12 @@ void Window::settleIdle() {
 //  판정
 // ============================================================
 void Window::handleSensor(const WindowInputs& in) {
-    if (!sensorActive()) return;
     SensorState s = in.sensor;
-    if (s == SensorState::UNKNOWN) {
-        sensorFailure(in.now);
-        return;
-    }
+    // 입력이 ON이 되면 센서 "있음"으로 정한다
+    if (_known == Known::UNDECIDED && _s.homeSensAuto && !_sensorErrMode && s == SensorState::PRESENT)
+        _known = Known::PRESENT;
+    if (!sensorActive()) return;
+    if (s == SensorState::UNKNOWN) return;           // 전원 켠 직후 첫 판정 전
     // 올라가며 센서가 "없음"으로 바뀌는 순간: 센서 지점으로 고쳐 쓴다
     if (_lastSensor == SensorState::PRESENT && s == SensorState::ABSENT && _dir > 0 && !_waitRelay) {
         _passedThisTick = true;
@@ -483,8 +476,8 @@ void Window::handleSensor(const WindowInputs& in) {
         _upPassActive = true;
         _upPassStart = runCs();
     }
-    // 위치 확인: 센서 지점보다 5초 넘게 위에 있는데 "있음"
-    if (_state != WinState::CALIBRATING && _posState == PosState::VALID
+    // 위치 확인: 센서 지점보다 5초 넘게 위에 있는데 ON
+    if (_known == Known::PRESENT && _state != WinState::CALIBRATING && _posState == PosState::VALID
         && s == SensorState::PRESENT && _pos > sensorPoint() + POS_CHECK_MARGIN) {
         sensorFailure(in.now);
     }
@@ -554,12 +547,12 @@ void Window::onNoCurrent(uint32_t now, SensorState sensor) {
         // 측정의 첫 하강: 이미 하한에 있어 전류가 흐르지 않음
         if (_state == WinState::CALIBRATING && _cal.phase == CalPhase::DOWN_FIRST) {
             cut(now);
-            _cal.phase = CalPhase::WAIT_1;
+            calAtBottom(sensor, now);
             return;
         }
         // 닫기나 원점 잡기에서 내려가려는데 처음부터 전류가 없음: 이미 하한으로 본다
         bool downward = _state == WinState::CLOSING || _state == WinState::HOMING;
-        if (downward && (!sensorActive() || sensor == SensorState::PRESENT)) {
+        if (downward && (!sensorActive() || _known == Known::UNDECIDED || sensor == SensorState::PRESENT)) {
             onCurrentStopped(now, sensor);
             return;
         }
@@ -581,7 +574,7 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
         cut(now);
         switch (_cal.phase) {
         case CalPhase::DOWN_FIRST:
-            _cal.phase = CalPhase::WAIT_1;
+            calAtBottom(sensor, now);
             break;
         case CalPhase::UP:
             if (_calSensor && !_calMark) { calFail(Cause::SENSOR, now); return; }
@@ -620,9 +613,13 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
         // 하한에서 전류가 끊김: 닫힘
         _posState = PosState::CLOSED;
         _pos = 0;
-        if (sensorActive() && sensor == SensorState::ABSENT) {
-            sensorFailure(now);        // 닫혔는데 센서가 "없음"
-            if (_state == WinState::FAULT) return;
+        if (sensorActive() && sensor != SensorState::PRESENT) {
+            if (_known == Known::UNDECIDED) {
+                decideAbsentAtBottom(now);     // OFF인 채로 처음 하한: 센서 없음으로 이어간다
+            } else {
+                sensorFailure(now);            // 센서가 있는 창이 닫혔는데 OFF
+                if (_state == WinState::FAULT) return;
+            }
         }
         if (_state == WinState::CLOSING) {
             if (_goal == Goal::CLOSE) { _goal = Goal::NONE; settleIdle(); }
@@ -634,6 +631,9 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
             if (sensorActive()) {
                 _hPhase = HomePhase::UP;
                 goReverseWait(WinState::HOMING, +1, now);
+            } else if (_s.homeTime < 0) {
+                _goal = Goal::NONE;            // 원점 시간이 없어 CLOSE에 머문다
+                settleIdle();
             } else {
                 _pos = -_s.homeTime;
                 _posState = PosState::VALID;
@@ -647,6 +647,17 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
         if (_posState == PosState::VALID) _pos = maxPos();
         raiseFault(Cause::LIMIT_HIT, now);
     }
+}
+
+// 측정의 첫 하강에서 하한에 닿음: 센서 판단 뒤 1초 정지
+void Window::calAtBottom(SensorState sensor, uint32_t now) {
+    if (_calSensor && sensor != SensorState::PRESENT && _known == Known::UNDECIDED) {
+        decideAbsentAtBottom(now);
+        _calSensor = false;            // 센서 없는 측정으로 이어간다
+        _cal.sensorMode = false;
+        if (_s.homeTime < 0) { calFail(Cause::SENSOR, now); return; }
+    }
+    _cal.phase = CalPhase::WAIT_1;
 }
 
 void Window::raiseFault(Cause c, uint32_t now) {
@@ -863,7 +874,8 @@ void Window::fillStatus(WindowStatus& st) const {
     st.nextDir = (_state == WinState::REVERSE_WAIT) ? _resumeDir : (_waitRelay ? _dir : 0);
     st.fault = _fault;
     st.configured = configured();
-    st.sensorFound = _sensorFound;
+    st.sensorFound = _known == Known::PRESENT;
+    st.sensorAbsent = _known == Known::ABSENT;
     st.sensorActive = sensorActive();
     st.sensorError = _sensorErrMode && _s.homeSensAuto;
     st.sensor = _lastSensor;

@@ -282,7 +282,8 @@ bool Ui::anyFault() const {
 }
 
 bool Ui::sensorActive(uint8_t w, const Settings& s) const {
-    return _st.win[w].sensorFound && s.win[w].homeSensAuto;
+    // 아직 정해지지 않았으면 있는 것처럼 본다 (ctl_Window와 같은 규칙)
+    return s.win[w].homeSensAuto && !_st.win[w].sensorAbsent && !_st.win[w].sensorError;
 }
 
 void Ui::pushSettings(uint8_t timesMask, uint8_t calMask) {
@@ -805,8 +806,13 @@ void Ui::fmtField(char* out, uint8_t i, int32_t v) const {
         else snprintf(out, 16, "%ld", (long)v);
         break;
     case F_SENS: {
-        bool found = _list == ListKind::TEMP ? _st.temp.found : _st.win[_listWin].sensorFound;
-        snprintf(out, 16, "%-6s %s", v ? "AUTO" : "OFF", found ? "FOUND" : "NONE");
+        const char* r;
+        if (_list == ListKind::TEMP) r = _st.temp.found ? "FOUND" : "NONE";
+        else {
+            const WindowStatus& w = _st.win[_listWin];
+            r = w.sensorFound ? "FOUND" : (w.sensorAbsent ? "NONE" : "WAIT");   // WAIT: ON이나 하한을 아직 못 봄
+        }
+        snprintf(out, 16, "%-6s %s", v ? "AUTO" : "OFF", r);
         break;
     }
     case F_TEMP: {
@@ -1171,10 +1177,11 @@ void Ui::drawMenu(uint32_t now) {
             const char* s[2];
             for (uint8_t i = 0; i < 2; i++) {
                 const WindowStatus& w = _st.win[i];
-                if (!w.sensorFound || !_s.win[i].homeSensAuto) s[i] = "--";
+                if (!_s.win[i].homeSensAuto || w.sensorAbsent) s[i] = "--";
+                else if (w.sensorError) s[i] = "ERR";
                 else if (w.sensor == SensorState::PRESENT) s[i] = "ON";
                 else if (w.sensor == SensorState::ABSENT) s[i] = "OFF";
-                else s[i] = "ERR";
+                else s[i] = "--";
             }
             snprintf(l1, sizeof(l1), "S1 %-4s S2 %s", s[0], s[1]);
         } else if (_page <= 2) {

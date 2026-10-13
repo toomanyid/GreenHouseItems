@@ -17,8 +17,7 @@ struct WindowInputs {
     uint32_t    now;            // ms
     int32_t     currentMa;      // 이 창 모터 전류
     bool        driverFault;    // 전류 감지 전압이 클램프 수준
-    SensorState sensor;         // 원점 센서 (0.1초 유지, 조합 이상 0.5초면 UNKNOWN)
-    bool        contactsValid;  // 지금 순간 두 접점 중 하나만 닫혀 있는지
+    SensorState sensor;         // 원점 센서 ON = PRESENT, OFF = ABSENT (0.1초 유지, 처음 판정 전 UNKNOWN)
     bool        relayReady;     // 주 릴레이가 붙고 0.1초 지남
 };
 
@@ -35,15 +34,14 @@ public:
     // 설정
     void setSettings(const WindowSettings& s) { _s = s; }
     void settingsChanged(const WindowSettings& s, bool timesChanged, bool calSaved);
-    void setSensorFound(bool found)            { _sensorFound = found; }
-    void setSensorHistory();                   // 이 창의 원점 센서 에러 기록이 있음 (전원 켤 때)
+    void setSensorHistory() { _sensorHistory = true; }   // 이 창의 원점 센서 에러 기록이 있음 (전원 켤 때)
 
     // 잡과 얼럿
     bool submit(const Job& job);               // "다음 목표" 칸에 넣음. 받지 않으면 false
     void stop(uint32_t now);                   // 전체 정지 얼럿
     void clearFault(uint32_t now);
     void restoreFault(Cause c);                // 전원 켤 때 미확인 고장으로 시작
-    void recheckSensor(uint32_t now);          // 원점 센서 에러 확인 뒤 3초 동안 다시 읽음
+    void recheckSensor();                      // 원점 센서 에러 확인: 센서 판단을 처음으로 돌림
     void setEstop(bool on, uint32_t now);
     void forceFault(Cause c, uint32_t now);    // 릴레이 고장처럼 밖에서 정한 고장
 
@@ -59,9 +57,14 @@ public:
     cs_t     limitPos() const;
     cs_t     maxPos() const;
     bool     configured() const;
-    bool     sensorActive() const { return _sensorFound && _s.homeSensAuto && !_sensorErrMode; }
+    // 센서로 원점을 잡는지. 아직 정해지지 않았으면 있는 것처럼 잡는다 (스펙 10절)
+    bool     sensorActive() const { return _s.homeSensAuto && _known != Known::ABSENT && !_sensorErrMode; }
 
 private:
+    enum class Known : uint8_t { UNDECIDED, PRESENT, ABSENT };
+    void decideAbsentAtBottom(uint32_t now);
+    void calAtBottom(SensorState sensor, uint32_t now);
+
     enum class Goal : uint8_t { NONE, TARGET, CLOSE };
     enum class HomePhase : uint8_t { DOWN_TO_SENSOR, EXTRA_DOWN, UP, NOSENSOR_DOWN };
     enum class FaultPhase : uint8_t { HOLD, BACKOFF_WAIT, BACKOFF_RUN };
@@ -160,12 +163,11 @@ private:
     bool       _everCleared = false;
 
     // 원점 센서
-    bool        _sensorFound = false;
-    bool        _sensorErrMode = false;   // 센서 없는 것처럼 동작 중
+    // 입력이 on/off 하나라 ON이 들어오면 "있음", OFF인 채로 처음 하한에 닿으면 "없음"으로 정한다
+    Known       _known = Known::UNDECIDED;
+    bool        _sensorErrMode = false;   // 센서 이상으로 센서 없는 것처럼 동작 중
+    bool        _sensorHistory = false;   // 이 창의 원점 센서 에러 기록이 있음
     SensorState _lastSensor = SensorState::UNKNOWN;
-    bool        _recheck = false;
-    bool        _recheckBad = false;
-    uint32_t    _recheckMs = 0;
 
     // 이동 시간 측정
     CalStatus _cal = {};

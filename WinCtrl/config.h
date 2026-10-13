@@ -49,9 +49,7 @@ const int32_t  DRIVER_FAULT_MV       = 3000;  // 감지 전압이 이 이상이�
 // ============================================================
 //  원점 센서와 위치
 // ============================================================
-const uint32_t SENSOR_DEBOUNCE_MS    = 100;   // 같은 결과가 이어져야 상태를 바꿈
-const uint32_t SENSOR_INVALID_MS     = 500;   // 접점 조합 이상이 이어지면 "모름"
-const uint32_t SENSOR_DETECT_MS      = 3000;  // 전원 켤 때 센서 유무 판단 시간
+const uint32_t SENSOR_DEBOUNCE_MS    = 100;   // 같은 값이 이어져야 상태를 바꿈 (임시)
 const uint32_t HOME_EXTRA_DOWN_MS    = 1000;  // 원점 잡기에서 더 내리는 시간
 const cs_t     POS_CHECK_MARGIN      = 500;   // 센서 지점보다 5초 넘게 위인데 "있음"이면 이상 (임시)
 const cs_t     CLOSE_MARGIN          = 300;   // CLOSE에서 겹침 하강 시간에 더하는 여유 (임시)

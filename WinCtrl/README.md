@@ -26,8 +26,7 @@ ESP32-S3로 측창 모터 2대를 초 단위로 움직이는 제어기의 펌웨
 | Partition Scheme | 16M Flash (3MB APP/9.9MB FATFS) 또는 기본값 |
 | Upload Speed | 921600 |
 
-GPIO19를 원점 센서2 NC 접점으로 쓰기 때문에 보드의 직결 USB 포트(USB 라벨)로는 업로드와 시리얼이 되지 않을 수 있습니다.
-업로드는 보드의 UART 포트(COM 라벨)로 합니다.
+핀 배정 문서대로 직결 USB 포트(USB 라벨)에는 케이블을 꽂지 않고, 업로드는 보드의 UART 포트(COM 라벨)로 합니다.
 
 맥에서도 같습니다. UART 포트의 USB 칩(CH340 등)이 보이지 않으면 해당 드라이버를 설치합니다.
 
@@ -68,7 +67,7 @@ sh test/check_compile.sh   # 아두이노 쪽 파일까지 가짜 헤더로 문�
 - 전류 환산 `BTS_KILIS`(8500), 드라이버 고장 전압 `DRIVER_FAULT_MV`
 - 릴레이 전압 경계 `RELAY_ON_MV`, `RELAY_OFF_MV`, 뗀 뒤 확인 시간 `RELAY_DECAY_MS`, 떼기 전 대기 `RELAY_RELEASE_DELAY_MS`
 - 비상정지 전압 경계 `ESTOP_OK_MV`
-- 위치 확인 여유 `POS_CHECK_MARGIN`, CLOSE 여유 `CLOSE_MARGIN`, 리밋 여유 `LIMIT_BACKUP_MARGIN`
+- 원점 센서 유지 시간 `SENSOR_DEBOUNCE_MS`, 위치 확인 여유 `POS_CHECK_MARGIN`, CLOSE 여유 `CLOSE_MARGIN`, 리밋 여유 `LIMIT_BACKUP_MARGIN`
 - 해제 후 재고장 시간 `REFAULT_WINDOW_MS`
 - 엔코더 빠르게 돌리기 경계 `ENC_FAST_MS`, `ENC_FASTER_MS`
 - 온도 센서 경계 `TEMP_PRESENT_UA`, `TEMP_OVER_UA`
@@ -82,3 +81,4 @@ sh test/check_compile.sh   # 아두이노 쪽 파일까지 가짜 헤더로 문�
 - 측정 결과의 저장 확인은 일곱째 장에서 누른 뒤, 돌려서 YES/NO를 고르고 다시 누릅니다.
 - 설정 메뉴에서는 한 칸짜리 회전도 받습니다. "0.5초 안에 두 칸" 규칙은 평소 화면에만 둡니다.
 - 얼럿 큐가 가득 차면 전체 정지로 처리합니다.
+- 원점 센서 유무가 아직 정해지지 않은 창은 메뉴의 HOME SENS 옆에 WAIT로 보이고, 점검 화면에는 지금 입력(ON/OFF)을 그대로 보입니다. 설치할 때 센서를 맞추는 데 쓰라는 뜻입니다.

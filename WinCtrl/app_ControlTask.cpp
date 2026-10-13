@@ -66,7 +66,6 @@ void controlLoop(void*) {
         in.now = now;
         for (uint8_t i = 0; i < 2; i++) {
             in.sensor[i] = s_sensor[i].update(now);
-            in.contactsValid[i] = s_sensor[i].contactsValid();
             s_motor[i].sense();
             in.currentMa[i] = s_motor[i].currentMa();
             in.driverFault[i] = s_motor[i].driverFault();
@@ -124,8 +123,8 @@ void begin(Model model, const Settings& s) {
     s_relay.begin(PIN_RELAY_FET_A, PIN_RELAY_FET_B, PIN_RELAY_SENSE, PIN_ESTOP_SENSE);
     s_motor[0].begin(PIN_M1_RPWM, PIN_M1_LPWM, PIN_M1_EN, PIN_M1_CURRENT, LEDC_CH_M1_R, LEDC_CH_M1_L, ohm, now);
     s_motor[1].begin(PIN_M2_RPWM, PIN_M2_LPWM, PIN_M2_EN, PIN_M2_CURRENT, LEDC_CH_M2_R, LEDC_CH_M2_L, ohm, now);
-    s_sensor[0].begin(PIN_S1_NO, PIN_S1_NC, now);
-    s_sensor[1].begin(PIN_S2_NO, PIN_S2_NC, now);
+    s_sensor[0].begin(PIN_S1, now);
+    s_sensor[1].begin(PIN_S2, now);
     s_temp.begin(PIN_TEMP_SENSE);
     s_pending = s;
     s_disp.begin(model, s, now);

@@ -8,8 +8,6 @@ void Dispatcher::begin(Model model, const Settings& s, uint32_t now) {
     for (uint8_t i = 0; i < 2; i++) {
         _w[i].setSettings(s.win[i]);
         _w[i].begin(i, model, now);
-        _contactsOk[i] = true;
-        _sensorHistory[i] = false;
     }
     _relay.begin(now);
     _temp.setSettings(s.temp);
@@ -27,21 +25,15 @@ void Dispatcher::pushEvent(uint8_t window, Cause c) {
     if (isFaultCause(c)) _temp.resetStep();
 }
 
-// 전원 켤 때: 원점 센서 유무 3초, 온도 센서 2초, 릴레이 자가 점검
+// 전원 켤 때: 온도 센서 2초, 릴레이 자가 점검.
+// 원점 센서 유무는 창이 스스로 정한다 (ON이 들어오거나 OFF인 채로 처음 하한에 닿을 때)
 void Dispatcher::bootStep(const ControlInputs& in) {
     uint32_t elapsed = in.now - _startMs;
-    if (elapsed < SENSOR_DETECT_MS) {
-        for (uint8_t i = 0; i < 2; i++) if (!in.contactsValid[i]) _contactsOk[i] = false;
-    }
     if (elapsed < TEMP_DETECT_MS) {
         _tempSum += in.tempUa;
         _tempN++;
     }
-    if (elapsed >= SENSOR_DETECT_MS && _relay.selfTestDone()) {
-        for (uint8_t i = 0; i < 2; i++) {
-            _w[i].setSensorFound(_contactsOk[i]);
-            if (_sensorHistory[i]) _w[i].setSensorHistory();
-        }
+    if (elapsed >= TEMP_DETECT_MS && _relay.selfTestDone()) {
         int32_t avg = _tempN ? (int32_t)(_tempSum / _tempN) : 0;
         _tempFound = _s.temp.sensorAuto && avg >= TEMP_PRESENT_UA;
         _tempValid = _tempFound;
@@ -64,16 +56,13 @@ void Dispatcher::alert(const Alert& a, uint32_t now) {
         _temp.resetStep();
         break;
     case AlertType::RECHECK_SENSOR:
-        if (a.window < 2) _w[a.window].recheckSensor(now);
+        if (a.window < 2) _w[a.window].recheckSensor();
         break;
     case AlertType::RESTORE_FAULT:
         if (a.window < 2) _w[a.window].restoreFault(a.cause);
         break;
     case AlertType::SENSOR_HISTORY:
-        if (a.window < 2) {
-            _sensorHistory[a.window] = true;
-            if (_bootDone) _w[a.window].setSensorHistory();
-        }
+        if (a.window < 2) _w[a.window].setSensorHistory();
         break;
     case AlertType::MENU_ENTER:
         _menu = true;
@@ -129,7 +118,6 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
         wi.currentMa = in.currentMa[i];
         wi.driverFault = in.driverFault[i];
         wi.sensor = in.sensor[i];
-        wi.contactsValid = in.contactsValid[i];
         wi.relayReady = ready;
         wo[i] = _w[i].tick(wi);
     }

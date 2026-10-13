@@ -16,7 +16,6 @@ struct ControlInputs {
     int32_t     currentMa[2];
     bool        driverFault[2];
     SensorState sensor[2];
-    bool        contactsValid[2];
     int32_t     relayMv;        // 릴레이 뒤 24V 쪽 전압
     int32_t     estopMv;        // 비상 버튼 뒤 24V 쪽 전압
     int32_t     tempUa;         // 온도 센서 전류 (µA)
@@ -56,8 +55,6 @@ private:
 
     uint32_t    _startMs = 0;
     bool        _bootDone = false;
-    bool        _contactsOk[2] = {true, true};
-    bool        _sensorHistory[2] = {false, false};
     int64_t     _tempSum = 0;
     uint32_t    _tempN = 0;
 

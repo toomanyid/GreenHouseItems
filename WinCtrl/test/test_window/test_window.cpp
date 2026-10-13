@@ -16,7 +16,7 @@ struct Plant {
     double  downSpeed = 1.0;     // 내려갈 때 속도 배율
     int32_t loadMa = 2000;
     bool    connected = true;    // 모터 플러그가 자동 소켓에 꽂혀 있음
-    bool    sensorBroken = false;
+    int     stuck = 0;           // 원점 센서: 0 정상, 1 늘 OFF (단선이나 센서 없음), 2 늘 ON
 
     void step(int8_t dir, uint16_t duty, uint32_t dtMs) {
         double d = (double)duty * dtMs / 10.0 / 1000.0;   // cs
@@ -31,7 +31,8 @@ struct Plant {
         return loadMa * (duty < 200 ? 200 : duty) / 1000 + 400;
     }
     SensorState sensor() const {
-        if (sensorBroken) return SensorState::UNKNOWN;
+        if (stuck == 1) return SensorState::ABSENT;
+        if (stuck == 2) return SensorState::PRESENT;
         return u < sensorAt ? SensorState::PRESENT : SensorState::ABSENT;
     }
 };
@@ -45,10 +46,9 @@ struct Sim {
     bool     relayOn = false;
     uint32_t noDriveMs = 0;      // 방향 전환 시험용: 출력이 0인 시간
 
-    void begin(const WindowSettings& s, bool sensorFound = true) {
+    void begin(const WindowSettings& s) {
         w.setSettings(s);
         w.begin(0, Model::W50, now);
-        w.setSensorFound(sensorFound);
     }
     void step() {
         // 릴레이: 원하면 붙고 0.1초 뒤 준비
@@ -61,7 +61,6 @@ struct Sim {
         in.currentMa = p.current(out.dir, out.duty);
         in.driverFault = false;
         in.sensor = p.sensor();
-        in.contactsValid = !p.sensorBroken;
         in.relayReady = ready;
         out = w.tick(in);
         p.step(out.dir, out.duty, CONTROL_PERIOD_MS);
@@ -453,11 +452,13 @@ static void test_sensor_dies_while_moving() {
     sim.begin(baseSettings());
     sim.move(10000);
     CHECK(sim.runUntilIdle(200000));
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.sensorFound);                       // 원점 잡으며 ON을 봄
     sim.move(14000);
     sim.run(3000);
-    sim.p.sensorBroken = true;
-    sim.step();
-    WindowStatus st;
+    sim.p.stuck = 2;                             // 센서 지점보다 한참 위인데 ON (스위치 붙음)
+    sim.run(200);
     sim.w.fillStatus(st);
     CHECK(st.sensorError);
     CHECK(!st.sensorActive);
@@ -477,18 +478,40 @@ static void test_sensor_dies_while_moving() {
     CHECK(sim.w.pos() == 2000);
     CHECK_NEAR(sim.p.u, ZERO_U + 2000, 3);
 
-    // 확인하면 다시 확인. 여전히 이상이면 다시 에러
-    sim.w.recheckSensor(sim.now);
-    sim.run(3500);
+    // 확인하면 센서 판단을 처음으로. 여전히 ON이면 위치 확인에서 다시 에러
+    sim.w.recheckSensor();
+    sim.run(500);
     CHECK(sim.w.popEvent(c) && c == Cause::HOME_SENSOR);
-    // 접점이 정상으로 돌아오면 에러가 다시 나지 않음
-    sim.p.sensorBroken = false;
-    sim.w.recheckSensor(sim.now);
-    sim.run(3500);
+    // 센서가 정상으로 돌아오면 에러가 다시 나지 않음
+    sim.p.stuck = 0;
+    sim.w.recheckSensor();
+    sim.run(500);
     CHECK(!sim.w.popEvent(c));
     sim.w.fillStatus(st);
     CHECK(!st.sensorError);
-    CHECK(st.sensorActive);
+    CHECK(st.sensorActive);                      // 아직 모름: 있는 것처럼
+    CHECK(!st.sensorFound && !st.sensorAbsent);
+}
+
+static void test_sensor_wire_broken_found_at_bottom() {
+    Sim sim;
+    sim.p.u = 3000;
+    sim.begin(baseSettings());
+    sim.move(5000);
+    CHECK(sim.runUntilIdle(200000));
+    sim.p.stuck = 1;                             // 단선: OFF와 구분되지 않음
+    sim.close();
+    CHECK(sim.runUntilIdle(300000));
+    CHECK(sim.w.posState() == PosState::CLOSED); // 하한에서 닫혔는데 OFF
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.sensorError);
+    Cause c;
+    CHECK(sim.w.popEvent(c) && c == Cause::HOME_SENSOR);
+    sim.move(3000);                              // 센서 없이 원점 시간으로
+    CHECK(sim.runUntilIdle(100000));
+    CHECK(sim.w.pos() == 3000);
+    CHECK_NEAR(sim.p.u, ZERO_U + 3000, 3);
 }
 
 static void test_sensor_fails_without_home_time() {
@@ -499,12 +522,55 @@ static void test_sensor_fails_without_home_time() {
     sim.begin(s);
     sim.move(10000);
     CHECK(sim.runUntilIdle(200000));
-    sim.p.sensorBroken = true;
-    sim.step();
+    sim.p.stuck = 2;
+    sim.run(200);
     CHECK(sim.w.state() == WinState::FAULT);
     WindowStatus st;
     sim.w.fillStatus(st);
     CHECK(st.fault == Cause::SENSOR);
+}
+
+static void test_no_sensor_decided_at_bottom() {
+    // 센서를 달지 않은 창: OFF인 채로 처음 하한에 닿으면 "없음"으로 정하고 그대로 이어간다
+    Sim sim;
+    sim.p.u = 7000;
+    sim.p.stuck = 1;
+    sim.begin(baseSettings());
+    sim.move(3000);
+    CHECK(sim.runUntil(WinState::HOMING, 3000));
+    CHECK(sim.runUntilIdle(300000));
+    CHECK(sim.w.pos() == 3000);
+    CHECK_NEAR(sim.p.u, ZERO_U + 3000, 3);
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.sensorAbsent && !st.sensorError && !st.sensorActive);
+    Cause c;
+    CHECK(!sim.w.popEvent(c));                   // 처음부터 없던 창은 에러가 아님
+
+    // 원점 센서 에러 기록이 있으면 다시 에러를 낸다
+    Sim h;
+    h.p.u = 7000;
+    h.p.stuck = 1;
+    h.begin(baseSettings());
+    h.w.setSensorHistory();
+    h.move(3000);
+    CHECK(h.runUntilIdle(300000));
+    CHECK(h.w.popEvent(c) && c == Cause::HOME_SENSOR);
+    h.w.fillStatus(st);
+    CHECK(st.sensorError);
+    CHECK(h.w.pos() == 3000);
+
+    // 원점 시간도 없으면 하한에서 CLOSE로 머문다
+    Sim n;
+    WindowSettings s = baseSettings();
+    s.homeTime = CS_EMPTY;
+    n.p.u = 7000;
+    n.p.stuck = 1;
+    n.begin(s);
+    n.move(3000);
+    CHECK(n.runUntilIdle(300000));
+    CHECK(n.w.state() == WinState::IDLE && n.w.posState() == PosState::CLOSED);
+    CHECK(!n.w.configured());
 }
 
 static void test_sensorless_homing() {
@@ -642,7 +708,9 @@ int main() {
     RUN(test_calibration_refused_with_limit);
     RUN(test_calibration_stopped);
     RUN(test_sensor_dies_while_moving);
+    RUN(test_sensor_wire_broken_found_at_bottom);
     RUN(test_sensor_fails_without_home_time);
+    RUN(test_no_sensor_decided_at_bottom);
     RUN(test_sensorless_homing);
     RUN(test_rehome_count_and_temp_defer);
     RUN(test_new_target_same_direction);
