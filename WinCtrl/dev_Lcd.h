@@ -5,6 +5,8 @@
 //  1층: 1602 LCD (HD44780 + PCF8574 I2C 백팩, 주소 0x27 또는 0x3F).
 //  화면 태스크는 setLine()으로 그림자 버퍼에 쓰고, flush()가 바뀐 글자만 보낸다.
 //  통신이 실패해도 제어에는 영향이 없다. 주기적으로 다시 초기화한다.
+//  임시: LCD가 없고 I2C OLED(SSD1306/SH1106 128x64, 0x3C/0x3D)가 있으면
+//  같은 16x2 글자를 OLED에 8x16 글꼴로 그린다. 시험용 대체 화면이다.
 // ============================================================
 class Lcd {
 public:
@@ -17,6 +19,8 @@ public:
     void setBacklight(bool on);
     void reinit();                                  // 다시 초기화하고 전부 다시 씀
     bool ok() const { return _ok; }
+    bool isOled() const { return _oled; }
+    uint8_t addr() const { return _addr; }
 
 private:
     void write4(uint8_t nibble, bool rs);
@@ -24,6 +28,11 @@ private:
     void command(uint8_t c) { send(c, false); }
     bool expander(uint8_t v);
     bool probe(uint8_t addr);
+    bool oledCmd(uint8_t c);
+    void oledInit();
+    void oledRow(uint8_t row);
+
+    bool    _oled = false;
 
     uint8_t _addr = 0;
     bool    _ok = false;
