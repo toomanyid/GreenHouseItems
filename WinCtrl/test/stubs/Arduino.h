@@ -17,6 +17,12 @@
 #define ESP_IDF_VERSION_MAJOR 5
 #endif
 typedef enum { ADC_0db, ADC_2_5db, ADC_6db, ADC_11db } adc_attenuation_t;
+struct HardwareSerial {
+    void begin(unsigned long) {}
+    int printf(const char*, ...) __attribute__((format(printf, 2, 3))) { return 0; }
+    size_t println(const char*) { return 0; }
+};
+static HardwareSerial Serial;
 inline void pinMode(uint8_t, uint8_t) {}
 inline void digitalWrite(uint8_t, uint8_t) {}
 inline int digitalRead(uint8_t) { return 0; }

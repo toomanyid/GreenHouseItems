@@ -14,10 +14,33 @@
 #include "ErrorLog.h"
 #include "app_ControlTask.h"
 #include "io_UiTask.h"
+#include <Wire.h>
 
 static ErrorLog s_bootLog;
 
+// 시리얼 확인용 로그. COM(UART) 포트, 115200bps.
+// LCD가 안 나올 때 보드가 살아 있는지, I2C에 무엇이 붙어 있는지 본다.
+static void scanI2c() {
+    Wire.begin(PIN_LCD_SDA, PIN_LCD_SCL, 100000);
+    Wire.setTimeOut(20);
+    uint8_t found = 0;
+    for (uint8_t a = 0x08; a < 0x78; a++) {
+        Wire.beginTransmission(a);
+        if (Wire.endTransmission() == 0) {
+            Serial.printf("[boot] I2C device at 0x%02X\n", a);
+            found++;
+        }
+    }
+    if (found == 0) Serial.println("[boot] I2C: no device (check SDA=8, SCL=9, level shifter, LCD 5V)");
+    Wire.end();
+}
+
 void setup() {
+    Serial.begin(115200);
+    delay(300);
+    Serial.printf("\n[boot] %s %02u.%02u  build %s %s\n",
+                  PRODUCT_NAME, FW_VERSION_MAJOR, FW_VERSION_MINOR, __DATE__, __TIME__);
+
     // 모델 구분 점퍼: 열림(HIGH) 300W, GND(LOW) 50W
     pinMode(PIN_MODEL_JUMPER, INPUT_PULLUP);
     delay(2);
@@ -28,11 +51,17 @@ void setup() {
     Store::loadSettings(s);
     uint16_t boot = Store::bumpBootCount();
     Store::loadErrors(s_bootLog);
+    Serial.printf("[boot] model %s, boot #%u, stored errors %u\n",
+                  model == Model::W50 ? "50W" : "300W", boot, s_bootLog.count());
+    scanI2c();
 
     ControlTask::begin(model, s);
     UiTask::begin(model, s, s_bootLog, boot, __DATE__, __TIME__);   // 컴파일 날짜와 시각
+    Serial.println("[boot] tasks started");
 }
 
 void loop() {
-    vTaskDelete(nullptr);    // 할 일은 두 태스크가 한다
+    // 할 일은 두 태스크가 한다. 여기서는 살아 있다는 표시만 5초마다 찍는다.
+    Serial.printf("[alive] %lus\n", (unsigned long)(millis() / 1000));
+    delay(5000);
 }
