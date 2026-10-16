@@ -85,6 +85,7 @@ const uint32_t ENC_VALID_WINDOW_MS   = 500;   // 이 안에 같은 방향 두 �
 const uint32_t ENC_FAST_MS           = 80;    // 칸 사이가 이보다 짧으면 5초 단위 (임시)
 const uint32_t ENC_FASTER_MS         = 40;    // 이보다 짧으면 10초 단위 (임시)
 const uint8_t  ENC_EDGES_PER_DETENT  = 4;     // PEC16-4220F-S0024: 한 칸에 4번 바뀜
+const int8_t   ENC_DIRECTION         = -1;    // 시계 방향이 +가 되게. 반대로 돌면 1로 바꾼다 (S1/S2 모듈로 맞춤, PEC16 오면 다시 확인)
 const uint32_t LCD_REINIT_MS         = 60000; // 화면을 주기적으로 다시 초기화
 
 // ============================================================

@@ -33,7 +33,7 @@ void IRAM_ATTR Encoder::onEdge() {
         if (_edges >= (int8_t)ENC_EDGES_PER_DETENT || _edges <= -(int8_t)ENC_EDGES_PER_DETENT) {
             uint8_t next = (uint8_t)((_head + 1) % RING);
             if (next != _tail) {                       // 가득 차면 버림
-                _ring[_head].dir = _edges > 0 ? 1 : -1;
+                _ring[_head].dir = (int8_t)((_edges > 0 ? 1 : -1) * ENC_DIRECTION);
                 _ring[_head].ms = (uint32_t)(esp_timer_get_time() / 1000);
                 _head = next;
             }
