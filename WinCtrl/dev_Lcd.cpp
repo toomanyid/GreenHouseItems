@@ -144,13 +144,14 @@ void Lcd::oledInit() {
         0xA4, 0xA6,       // 화면 내용 따름, 정상 표시
     };
     for (uint8_t i = 0; i < sizeof(seq); i++) oledCmd(seq[i]);
-    // 8페이지 모두 지움
+    // 8페이지 모두 지움. SH1106은 메모리가 132열이라 132열까지 지운다.
+    // (지우지 않으면 오른쪽 끝에 세로 줄무늬가 남는다. SSD1306은 넘친 4바이트가 0열로 돌아가 다시 0을 쓴다.)
     for (uint8_t p = 0; p < 8; p++) {
         oledCmd((uint8_t)(0xB0 | p)); oledCmd(0x00); oledCmd(0x10);
-        for (uint8_t x = 0; x < 128; x += 16) {
+        for (uint8_t x = 0; x < 132; x += 12) {
             Wire.beginTransmission(_addr);
             Wire.write(0x40);
-            for (uint8_t k = 0; k < 16; k++) Wire.write(0);
+            for (uint8_t k = 0; k < 12; k++) Wire.write(0);
             if (Wire.endTransmission() != 0) _txErr = true;
         }
     }
