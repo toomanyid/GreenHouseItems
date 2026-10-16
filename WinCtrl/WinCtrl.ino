@@ -21,7 +21,16 @@ static ErrorLog s_bootLog;
 // 시리얼 확인용 로그. COM(UART) 포트, 115200bps.
 // LCD가 안 나올 때 보드가 살아 있는지, I2C에 무엇이 붙어 있는지 본다.
 static void scanI2c() {
-    Wire.begin(PIN_LCD_SDA, PIN_LCD_SCL, 100000);
+    // 버스가 쉬는 상태면 풀업 때문에 두 선 모두 HIGH(1)여야 한다.
+    // 0이면 풀업이 없거나(레벨 변환 모듈 전원) 선이 GND 쪽으로 눌려 있다.
+    pinMode(PIN_LCD_SDA, INPUT);
+    pinMode(PIN_LCD_SCL, INPUT);
+    delay(2);
+    int sda = digitalRead(PIN_LCD_SDA), scl = digitalRead(PIN_LCD_SCL);
+    Serial.printf("[boot] I2C idle level SDA(8)=%d SCL(9)=%d %s\n", sda, scl,
+                  (sda && scl) ? "OK" : "<- should be 1, check pull-up / level shifter power");
+    bool ok = Wire.begin(PIN_LCD_SDA, PIN_LCD_SCL, 100000);
+    Serial.printf("[boot] I2C begin %s, scanning...\n", ok ? "OK" : "FAILED");
     Wire.setTimeOut(20);
     uint8_t found = 0;
     for (uint8_t a = 0x08; a < 0x78; a++) {
