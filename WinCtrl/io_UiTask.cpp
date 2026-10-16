@@ -380,6 +380,12 @@ void Ui::readInput(uint32_t now) {
     uint8_t n = _enc.take(steps, 16);
     bool down = _enc.pressed();
 
+    // 시리얼 확인용: 엔코더 한 칸과 누름/뗌을 찍는다
+    for (uint8_t i = 0; i < n; i++)
+        Serial.printf("[enc] step %s (edges %lu)\n", steps[i].dir > 0 ? "CW +1" : "CCW -1",
+                      (unsigned long)_enc.edgeCount());
+    if (down != _btnDown) Serial.printf("[enc] button %s\n", down ? "DOWN" : "UP");
+
     if (n || down != _btnDown) {
         bool wasDark = !_backlight;
         _lastInputMs = now;

@@ -71,6 +71,7 @@ void setup() {
 
 void loop() {
     // 할 일은 두 태스크가 한다. 여기서는 살아 있다는 표시만 5초마다 찍는다.
-    Serial.printf("[alive] %lus\n", (unsigned long)(millis() / 1000));
+    Serial.printf("[alive] %lus  enc A(41)=%d B(42)=%d SW(47)=%d\n", (unsigned long)(millis() / 1000),
+                  digitalRead(PIN_ENC_A), digitalRead(PIN_ENC_B), digitalRead(PIN_ENC_SW));
     delay(5000);
 }

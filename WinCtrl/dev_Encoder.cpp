@@ -27,6 +27,7 @@ void IRAM_ATTR Encoder::onEdge() {
     portENTER_CRITICAL_ISR(&s_mux);
     int8_t d = QUAD[(_state << 2) | now];
     _state = now;
+    _edgeCount++;
     if (d != 0) {
         _edges += d;
         if (_edges >= (int8_t)ENC_EDGES_PER_DETENT || _edges <= -(int8_t)ENC_EDGES_PER_DETENT) {

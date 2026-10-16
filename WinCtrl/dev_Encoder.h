@@ -16,6 +16,7 @@ public:
     void    begin(uint8_t pinA, uint8_t pinB, uint8_t pinSw);
     uint8_t take(EncStep* out, uint8_t max);   // 쌓인 칸을 꺼냄
     bool    pressed();                          // 스위치 (떨림 거른 값)
+    uint32_t edgeCount() const { return _edgeCount; }   // 시리얼 확인용: 지금까지 바뀐 횟수
 
     void    onEdge();                           // 인터럽트에서만 부름
 private:
@@ -23,6 +24,7 @@ private:
     uint8_t  _a = 0, _b = 0, _sw = 0;
     volatile uint8_t  _state = 0;
     volatile int8_t   _edges = 0;
+    volatile uint32_t _edgeCount = 0;
     volatile uint8_t  _head = 0, _tail = 0;
     EncStep  _ring[RING];
     bool     _swRaw = false, _swValue = false;
