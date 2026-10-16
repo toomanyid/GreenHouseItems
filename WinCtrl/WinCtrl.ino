@@ -73,9 +73,5 @@ void loop() {
     // 할 일은 두 태스크가 한다. 여기서는 살아 있다는 표시만 5초마다 찍는다.
     Serial.printf("[alive] %lus  enc A(41)=%d B(42)=%d SW(47)=%d\n", (unsigned long)(millis() / 1000),
                   digitalRead(PIN_ENC_A), digitalRead(PIN_ENC_B), digitalRead(PIN_ENC_SW));
-    // 핀 전압(mV). 비상정지는 핀 1090mV(24V 쪽 12V) 미만이면 걸린다
-    Serial.printf("[alive] pin mV  ESTOP(1)=%lu RELAY(6)=%lu\n",
-                  (unsigned long)analogReadMilliVolts(PIN_ESTOP_SENSE),
-                  (unsigned long)analogReadMilliVolts(PIN_RELAY_SENSE));
     delay(5000);
 }
