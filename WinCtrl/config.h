@@ -92,7 +92,7 @@ const uint32_t LCD_REINIT_MS         = 60000; // 화면을 주기적으로 다�
 //  온도 센서
 // ============================================================
 const uint32_t TEMP_DETECT_MS        = 2000;
-const int32_t  TEMP_SENSE_OHM        = 150;
+const int32_t  TEMP_SENSE_OHM        = 120;   // 21mA가 2.52V. 150Ω이면 3.15V로 ADC 상한을 넘는다
 const int32_t  TEMP_PRESENT_UA       = 2000;  // 2mA 이상이면 "있음" (임시)
 const int32_t  TEMP_OVER_UA          = 21000; // 21mA를 넘으면 이상 (임시)
 const uint32_t TEMP_LOSS_MS          = 1000;  // 끊김이 이 시간 이어지면 끊김으로 봄

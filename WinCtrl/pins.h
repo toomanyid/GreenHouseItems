@@ -6,7 +6,7 @@
 //  핀 번호는 1층(dev_*)에서만 쓴다.
 // ============================================================
 const uint8_t PIN_ESTOP_SENSE  = 1;   // 비상정지 감지 (아날로그, 분압 100k/10k)
-const uint8_t PIN_TEMP_SENSE   = 2;   // 온도 센서 4~20mA (감지 저항 150Ω)
+const uint8_t PIN_TEMP_SENSE   = 2;   // 온도 센서 4~20mA (감지 저항 120Ω)
 const uint8_t PIN_M1_CURRENT   = 4;   // 모터1 전류 (R_IS + L_IS)
 const uint8_t PIN_M2_CURRENT   = 5;   // 모터2 전류
 const uint8_t PIN_RELAY_SENSE  = 6;   // 주 릴레이 뒤 전압 (분압 100k/10k)
