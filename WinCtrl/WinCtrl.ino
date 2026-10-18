@@ -49,6 +49,9 @@ void setup() {
     delay(300);
     Serial.printf("\n[boot] %s %02u.%02u  build %s %s\n",
                   PRODUCT_NAME, FW_VERSION_MAJOR, FW_VERSION_MINOR, __DATE__, __TIME__);
+#ifdef WINCTRL_BENCH
+    Serial.println("[boot] !!! BENCH BUILD: relay voltage check OFF. Do not install. !!!");
+#endif
 
     // 모델 구분 점퍼: 열림(HIGH) 300W, GND(LOW) 50W
     pinMode(PIN_MODEL_JUMPER, INPUT_PULLUP);

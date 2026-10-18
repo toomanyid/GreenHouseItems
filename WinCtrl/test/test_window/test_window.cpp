@@ -642,6 +642,7 @@ static void test_close_on_unknown_then_target() {
 // ------------------------------------------------------------
 //  RelayControl
 // ------------------------------------------------------------
+#ifndef WINCTRL_BENCH
 static void test_relay_selftest_and_engage() {
     RelayControl r;
     r.begin(0);
@@ -673,6 +674,18 @@ static void test_relay_selftest_detects_shorted_fet() {
     for (; t < 2000; t += 10) r.tick(t, r.fetA() ? 24000 : 0, false);   // A만 켰는데 전압: B 붙음
     CHECK(r.fault());
 }
+#else
+// 책상 시험 빌드: 실제 전압이 어떻든 정상 릴레이로 본다
+static void test_relay_bench_ignores_voltage() {
+    RelayControl r;
+    r.begin(0);
+    uint32_t t = 0;
+    for (; t < 2000 && !r.selfTestDone(); t += 10) r.tick(t, 24000, false);   // 떠 있는 핀
+    CHECK(!r.fault());
+    for (int i = 0; i < 20; i++) { r.tick(t, 0, true); t += 10; }             // 24V 없음
+    CHECK(r.ready() && !r.fault());
+}
+#endif
 
 static void test_current_monitor() {
     CurrentMonitor m;
@@ -715,8 +728,12 @@ int main() {
     RUN(test_rehome_count_and_temp_defer);
     RUN(test_new_target_same_direction);
     RUN(test_close_on_unknown_then_target);
+#ifdef WINCTRL_BENCH
+    RUN(test_relay_bench_ignores_voltage);
+#else
     RUN(test_relay_selftest_and_engage);
     RUN(test_relay_selftest_detects_shorted_fet);
+#endif
     RUN(test_current_monitor);
     return finish();
 }
