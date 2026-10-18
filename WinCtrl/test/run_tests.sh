@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")/.."
 OUT=$(mktemp -d)
 CXX=${CXX:-g++}
-FLAGS="-std=c++11 -Wall -Wextra -Werror -Wno-format-truncation -O1 -I."
+FLAGS="-std=c++11 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-truncation -O1 -I."
 $CXX $FLAGS test/test_window/test_window.cpp ctl_Window.cpp ctl_Safety.cpp Settings.cpp -o "$OUT/test_window"
 "$OUT/test_window"
 if [ -f test/test_logic/test_logic.cpp ]; then

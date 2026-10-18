@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")/.."
 CXX=${CXX:-g++}
 for f in *.cpp; do
-  $CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-format-truncation -fsyntax-only -Itest/stubs -I. "$f"
+  $CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-truncation -fsyntax-only -Itest/stubs -I. "$f"
 done
-$CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-format-truncation -fsyntax-only -Itest/stubs -I. -x c++ WinCtrl.ino
+$CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-truncation -fsyntax-only -Itest/stubs -I. -x c++ WinCtrl.ino
 echo "문법 확인 통과"
