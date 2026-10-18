@@ -122,6 +122,7 @@ private:
     bool tempMode() const { return _st.temp.found; }
     bool anyMoving() const;
     bool anyFault() const;
+    void logLcd(const char* what) const;
     void startEdit(uint8_t w);
     void ackOne();
 
@@ -177,6 +178,7 @@ private:
     bool     _wakeOnly = false;
     uint32_t _lastInputMs = 0;
     bool     _backlight = true;
+    uint8_t  _blKeepWhy = 0xFF;   // 시리얼 확인용: 켜 두는 이유가 바뀔 때만 찍는다
     int8_t   _pendDir = 0;
     uint32_t _pendMs = 0;
     bool     _burst = false;
@@ -241,6 +243,7 @@ void Ui::begin(Model model, const Settings& s, const ErrorLog& log, uint16_t boo
     _snd.setOptions(s.clickSound, s.alarmSound);
     _enc.begin(PIN_ENC_A, PIN_ENC_B, PIN_ENC_SW);
     _lcd.begin(PIN_LCD_SDA, PIN_LCD_SCL);
+    logLcd("begin");
     _startMs = millis();
     _lastInputMs = _startMs;
     _lastLcdInit = _startMs;
@@ -279,6 +282,16 @@ bool Ui::anyMoving() const {
 
 bool Ui::anyFault() const {
     return _st.win[0].state == WinState::FAULT || _st.win[1].state == WinState::FAULT || _st.relayFault;
+}
+
+// 시리얼 확인용: 화면을 찾았는지, 초기화가 됐는지
+void Ui::logLcd(const char* what) const {
+    if (_lcd.addr() == 0) {
+        Serial.printf("[lcd] %s: no display\n", what);
+        return;
+    }
+    Serial.printf("[lcd] %s 0x%02X %s %s, backlight %s\n", what, _lcd.addr(),
+                  _lcd.isOled() ? "OLED" : "LCD", _lcd.ok() ? "OK" : "FAIL", _backlight ? "ON" : "OFF");
 }
 
 bool Ui::sensorActive(uint8_t w, const Settings& s) const {
@@ -331,13 +344,23 @@ void Ui::tick() {
     else drawMenu(now);
 
     // 백라이트: 움직이는 동안, 고장, 비상정지에서는 켜 둔다
-    bool keep = anyMoving() || anyFault() || _st.estop || _screen == Screen::SPLASH;
-    _backlight = keep || now - _lastInputMs < BACKLIGHT_OFF_MS;
+    uint8_t why = (anyMoving() ? 1 : 0) | (anyFault() ? 2 : 0) | (_st.estop ? 4 : 0) |
+                  (_screen == Screen::SPLASH ? 8 : 0);
+    if (why != _blKeepWhy) {
+        _blKeepWhy = why;
+        Serial.printf("[lcd] backlight held by:%s%s%s%s%s\n", why ? "" : " none (off after idle)",
+                      (why & 1) ? " moving" : "", (why & 2) ? " fault" : "",
+                      (why & 4) ? " estop" : "", (why & 8) ? " splash" : "");
+    }
+    bool keep = why != 0;
+    bool bl = keep || now - _lastInputMs < BACKLIGHT_OFF_MS;
+    if (bl != _backlight) Serial.printf("[lcd] backlight %s\n", bl ? "ON" : "OFF");
+    _backlight = bl;
     _lcd.setBacklight(_backlight);
 
     // 화면 통신: 주기적으로, 실패했으면 더 자주 다시 초기화
     uint32_t every = _lcd.ok() ? LCD_REINIT_MS : LCD_RETRY_MS;
-    if (now - _lastLcdInit >= every) { _lastLcdInit = now; _lcd.reinit(); }
+    if (now - _lastLcdInit >= every) { _lastLcdInit = now; _lcd.reinit(); logLcd("reinit"); }
     _lcd.flush();
 
     _snd.setOptions(_s.clickSound, _s.alarmSound);
@@ -391,6 +414,7 @@ void Ui::readInput(uint32_t now) {
         _lastInputMs = now;
         if (wasDark) {
             // 꺼진 화면의 첫 조작은 화면만 켠다
+            Serial.println("[lcd] backlight ON (input)");
             _backlight = true;
             _lcd.setBacklight(true);
             n = 0;
