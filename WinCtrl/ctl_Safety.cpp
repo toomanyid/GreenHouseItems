@@ -67,7 +67,7 @@ void RelayControl::begin(uint32_t now) {
     _decayCheck = false;
 }
 
-void RelayControl::tick(uint32_t now, int32_t relayMv, bool wantOn) {
+void RelayControl::tick(uint32_t now, int32_t relayMv, bool wantOn, bool holdOk) {
     if (_fault) return;
 #ifdef WINCTRL_BENCH
     // 책상 시험 빌드에서만: 24V가 없으므로 릴레이 뒤 전압을 읽지 않고
@@ -131,7 +131,13 @@ void RelayControl::tick(uint32_t now, int32_t relayMv, bool wantOn) {
         break;
     case Phase::ON:
         if (relayMv < RELAY_OFF_MV) { setFault(); return; }
-        if (!wantOn) { _phase = Phase::RELEASE_WAIT; _phaseMs = now; _ready = false; }
+        if (!wantOn) { _phase = holdOk ? Phase::HOLD : Phase::RELEASE_WAIT; _phaseMs = now; _ready = false; }
+        break;
+    case Phase::HOLD:
+        // 멈춘 뒤에도 잠시 붙여 둔다. 그 안에 다음 이동이 오면 다시 붙이지 않고 바로 구동한다
+        if (relayMv < RELAY_OFF_MV) { setFault(); return; }
+        if (wantOn) { _ready = true; _phase = Phase::ON; _phaseMs = now; break; }
+        if (!holdOk || inPhase >= RELAY_HOLD_MS) { _phase = Phase::RELEASE_WAIT; _phaseMs = now; }
         break;
     case Phase::RELEASE_WAIT:
         // 끊은 뒤 잠깐 기다려 전류가 없을 때 뗀다

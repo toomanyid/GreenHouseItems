@@ -24,8 +24,9 @@ const uint32_t CONTROL_PERIOD_MS     = 10;
 const uint32_t UI_PERIOD_MS          = 20;
 const uint32_t SOFT_START_MS         = 600;
 const uint32_t REVERSE_WAIT_MS       = 1000;  // 방향 전환 정지 시간 (전원 켠 뒤 첫 구동 전에도)
-const uint32_t RELAY_SETTLE_MS       = 100;   // 릴레이 붙인 뒤 구동까지
-const uint32_t RELAY_RELEASE_DELAY_MS = 100;  // 끊은 뒤 릴레이를 떼기까지 (임시)
+const uint32_t RELAY_SETTLE_MS       = 100;   // 주 차단 MC를 붙인 뒤 구동까지
+const uint32_t RELAY_RELEASE_DELAY_MS = 100;  // 끊은 뒤 MC를 떼기까지 (임시)
+const uint32_t RELAY_HOLD_MS         = 10000; // 두 창이 모두 멈춘 뒤 MC를 더 붙여 두는 시간 (스펙 6절)
 const uint32_t PWM_FREQ_HZ           = 20000;
 const uint16_t DUTY_FULL             = 1000;
 

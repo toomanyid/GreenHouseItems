@@ -122,9 +122,10 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
         wo[i] = _w[i].tick(wi);
     }
 
-    // 주 릴레이: 두 창이 모두 멈췄으면 뗀다
+    // 주 차단 MC: 두 창이 모두 멈추면 10초 뒤에 뗀다. 비상정지나 고장이면 바로 뗀다
     bool want = (wo[0].wantRelay || wo[1].wantRelay) && _relay.selfTestDone();
-    _relay.tick(now, in.relayMv, want);
+    bool holdOk = !pressed && _w[0].state() != WinState::FAULT && _w[1].state() != WinState::FAULT;
+    _relay.tick(now, in.relayMv, want, holdOk);
     out.fetA = _relay.fetA();
     out.fetB = _relay.fetB();
     for (uint8_t i = 0; i < 2; i++) {
