@@ -191,7 +191,7 @@ WindowOutputs Window::tick(const WindowInputs& in) {
     // 1. 지난 주기의 출력으로 위치를 쌓는다
     accumulate(dt);
 
-    // 2. 릴레이가 붙었으면 소프트 스타트를 시작한다
+    // 2. MC가 붙었으면 소프트 스타트를 시작한다
     if (_dir != 0 && _waitRelay && in.relayReady) {
         _waitRelay = false;
         _driveStartMs = now;

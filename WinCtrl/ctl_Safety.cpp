@@ -70,14 +70,14 @@ void RelayControl::begin(uint32_t now) {
 void RelayControl::tick(uint32_t now, int32_t relayMv, bool wantOn, bool holdOk) {
     if (_fault) return;
 #ifdef WINCTRL_BENCH
-    // 책상 시험 빌드에서만: 24V가 없으므로 릴레이 뒤 전압을 읽지 않고
-    // 정상 릴레이처럼 FET A, B가 둘 다 켜졌을 때만 전압이 있다고 본다.
+    // 책상 시험 빌드에서만: 24V가 없으므로 MC 뒤 전압을 읽지 않고
+    // 정상 MC처럼 FET A, B가 둘 다 켜졌을 때만 전압이 있다고 본다.
     relayMv = (_fetA && _fetB) ? RELAY_ON_MV : 0;
 #endif
     uint32_t inPhase = now - _phaseMs;
 
     switch (_phase) {
-    // 전원 켤 때: 릴레이가 떨어진 채 전압이 없어야 하고, A만 켜거나 B만 켜도 전압이 없어야 한다
+    // 전원 켤 때: MC가 떨어진 채 전압이 없어야 하고, A만 켜거나 B만 켜도 전압이 없어야 한다
     case Phase::BOOT_CHECK:
         if (inPhase >= RELAY_SELFTEST_STEP_MS) {
             if (relayMv >= RELAY_OFF_MV) { setFault(); return; }
