@@ -18,13 +18,13 @@ struct WindowInputs {
     int32_t     currentMa;      // 이 창 모터 전류
     bool        driverFault;    // 전류 감지 전압이 클램프 수준
     SensorState sensor;         // 원점 센서 ON = PRESENT, OFF = ABSENT (0.1초 유지, 처음 판정 전 UNKNOWN)
-    bool        relayReady;     // 주 릴레이가 붙고 0.1초 지남
+    bool        relayReady;     // 주 차단 MC가 붙고 0.1초 지남
 };
 
 struct WindowOutputs {
     int8_t   dir;        // +1 상승, -1 하강, 0 끊음
     uint16_t duty;       // 0~1000
-    bool     wantRelay;  // 주 릴레이가 필요함 (방향 전환 정지 중 포함)
+    bool     wantRelay;  // 주 차단 MC가 필요함 (방향 전환 정지 중 포함)
 };
 
 class Window {
@@ -43,7 +43,7 @@ public:
     void restoreFault(Cause c);                // 전원 켤 때 미확인 고장으로 시작
     void recheckSensor();                      // 원점 센서 에러 확인: 센서 판단을 처음으로 돌림
     void setEstop(bool on, uint32_t now);
-    void forceFault(Cause c, uint32_t now);    // 릴레이 고장처럼 밖에서 정한 고장
+    void forceFault(Cause c, uint32_t now);    // MC 고장처럼 밖에서 정한 고장
 
     WindowOutputs tick(const WindowInputs& in);
 

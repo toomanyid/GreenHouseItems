@@ -48,12 +48,14 @@ private:
     uint32_t _settledN = 0;
 };
 
-// 주 릴레이: 전원 켤 때 자가 점검, 붙이고 떼는 순서, 붙음/불량 감시
+// 주 차단 MC (코드의 이름은 relay): 전원 켤 때 자가 점검, 붙이고 떼는 순서, 붙음/불량 감시
+//   두 창이 모두 멈추면 RELAY_HOLD_MS 동안 더 붙여 두었다가 뗀다. holdOk가 거짓이면
+//   (비상정지, 고장) 유지 시간 없이 EN을 끈 0.1초 뒤에 바로 뗀다.
 class RelayControl {
 public:
     void begin(uint32_t now);
-    // relayMv: 릴레이 뒤 24V 쪽 전압 (mV). wantOn: 어느 창이든 구동하려 함
-    void tick(uint32_t now, int32_t relayMv, bool wantOn);
+    // relayMv: MC 뒤 24V 쪽 전압 (mV). wantOn: 어느 창이든 구동하려 함. holdOk: 유지 시간을 둬도 됨
+    void tick(uint32_t now, int32_t relayMv, bool wantOn, bool holdOk = true);
 
     bool fetA() const        { return _fetA; }
     bool fetB() const        { return _fetB; }
@@ -62,7 +64,7 @@ public:
     bool fault() const       { return _fault; }
 
 private:
-    enum class Phase : uint8_t { BOOT_CHECK, TEST_A, GAP, TEST_B, OFF, ENGAGE_B, ENGAGE_A, ON, RELEASE_WAIT };
+    enum class Phase : uint8_t { BOOT_CHECK, TEST_A, GAP, TEST_B, OFF, ENGAGE_B, ENGAGE_A, ON, HOLD, RELEASE_WAIT };
     void  setFault() { _fault = true; _fetA = _fetB = false; _ready = false; }
 
     Phase    _phase = Phase::BOOT_CHECK;

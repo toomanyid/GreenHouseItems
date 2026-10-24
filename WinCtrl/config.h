@@ -24,8 +24,9 @@ const uint32_t CONTROL_PERIOD_MS     = 10;
 const uint32_t UI_PERIOD_MS          = 20;
 const uint32_t SOFT_START_MS         = 600;
 const uint32_t REVERSE_WAIT_MS       = 1000;  // 방향 전환 정지 시간 (전원 켠 뒤 첫 구동 전에도)
-const uint32_t RELAY_SETTLE_MS       = 100;   // 릴레이 붙인 뒤 구동까지
-const uint32_t RELAY_RELEASE_DELAY_MS = 100;  // 끊은 뒤 릴레이를 떼기까지 (임시)
+const uint32_t RELAY_SETTLE_MS       = 100;   // 주 차단 MC를 붙인 뒤 구동까지
+const uint32_t RELAY_RELEASE_DELAY_MS = 100;  // 끊은 뒤 MC를 떼기까지 (임시)
+const uint32_t RELAY_HOLD_MS         = 10000; // 두 창이 모두 멈춘 뒤 MC를 더 붙여 두는 시간 (스펙 6절)
 const uint32_t PWM_FREQ_HZ           = 20000;
 const uint16_t DUTY_FULL             = 1000;
 
@@ -43,7 +44,7 @@ const uint32_t REFAULT_WINDOW_MS     = 60000; // 해제 후 이 시간 안에 �
 // 전류 환산: BTS7960 IS 전류 = 부하 전류 / KILIS. 실물로 확인 후 조정 (임시)
 const int32_t  BTS_KILIS             = 8500;
 const int32_t  SENSE_OHM_50W         = 2200;
-const int32_t  SENSE_OHM_300W        = 820;
+const int32_t  SENSE_OHM_300W        = 817;   // 2.2kΩ ∥ 1.3kΩ (모델 점퍼)
 const int32_t  DRIVER_FAULT_MV       = 3000;  // 감지 전압이 이 이상이면 드라이버 고장 신호 (임시)
 
 // ============================================================
@@ -62,9 +63,9 @@ const uint32_t MAX_RUN_FALLBACK_MS   = 1200000; // 최대 구동 시간을 알 �
 const uint32_t CAL_TIMEOUT_MS        = 600000; // 10분
 
 // ============================================================
-//  릴레이와 비상정지 (분압 100k/10k: 24V → 약 2.18V)
+//  MC와 비상정지 (분압 100k/10k: 24V → 약 2.18V)
 // ============================================================
-const int32_t  RELAY_ON_MV           = 12000; // 릴레이 뒤 24V 쪽 전압이 이 이상이면 "있음" (임시)
+const int32_t  RELAY_ON_MV           = 12000; // MC 뒤 24V 쪽 전압이 이 이상이면 "있음" (임시)
 const int32_t  RELAY_OFF_MV          = 5000;  // 이 미만이면 "없음" (임시)
 const uint32_t RELAY_DECAY_MS        = 3000;  // 뗀 뒤 전압이 빠지기를 기다리는 시간 (임시)
 const uint32_t RELAY_SELFTEST_STEP_MS = 200;
@@ -92,7 +93,7 @@ const uint32_t LCD_REINIT_MS         = 60000; // 화면을 주기적으로 다�
 //  온도 센서
 // ============================================================
 const uint32_t TEMP_DETECT_MS        = 2000;
-const int32_t  TEMP_SENSE_OHM        = 150;
+const int32_t  TEMP_SENSE_OHM        = 120;   // 4mA 0.48V, 20mA 2.4V
 const int32_t  TEMP_PRESENT_UA       = 2000;  // 2mA 이상이면 "있음" (임시)
 const int32_t  TEMP_OVER_UA          = 21000; // 21mA를 넘으면 이상 (임시)
 const uint32_t TEMP_LOSS_MS          = 1000;  // 끊김이 이 시간 이어지면 끊김으로 봄

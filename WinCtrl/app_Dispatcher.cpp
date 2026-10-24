@@ -25,7 +25,7 @@ void Dispatcher::pushEvent(uint8_t window, Cause c) {
     if (isFaultCause(c)) _temp.resetStep();
 }
 
-// 전원 켤 때: 온도 센서 2초, 릴레이 자가 점검.
+// 전원 켤 때: 온도 센서 2초, MC 자가 점검.
 // 원점 센서 유무는 창이 스스로 정한다 (ON이 들어오거나 OFF인 채로 처음 하한에 닿을 때)
 void Dispatcher::bootStep(const ControlInputs& in) {
     uint32_t elapsed = in.now - _startMs;
@@ -49,7 +49,7 @@ void Dispatcher::alert(const Alert& a, uint32_t now) {
         _temp.resetStep();
         break;
     case AlertType::CLEAR_FAULT:
-        if (_relay.fault()) break;              // 릴레이 고장은 전원을 다시 켤 때까지 남는다
+        if (_relay.fault()) break;              // MC 고장은 전원을 다시 켤 때까지 남는다
         for (uint8_t i = 0; i < 2; i++) {
             if (a.window == 0xFF || a.window == i) _w[i].clearFault(now);
         }
@@ -103,7 +103,7 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
     for (uint8_t i = 0; i < 2; i++) _w[i].setEstop(pressed, now);
     if (pressed) _temp.resetStep();
 
-    // 릴레이 고장이면 운전을 막는다
+    // MC 고장이면 운전을 막는다
     if (_relay.fault()) {
         for (uint8_t i = 0; i < 2; i++) _w[i].forceFault(Cause::RELAY, now);
         if (!_relayFaultLogged) { pushEvent(0, Cause::RELAY); _relayFaultLogged = true; }
@@ -122,9 +122,10 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
         wo[i] = _w[i].tick(wi);
     }
 
-    // 주 릴레이: 두 창이 모두 멈췄으면 뗀다
+    // 주 차단 MC: 두 창이 모두 멈추면 10초 뒤에 뗀다. 비상정지나 고장이면 바로 뗀다
     bool want = (wo[0].wantRelay || wo[1].wantRelay) && _relay.selfTestDone();
-    _relay.tick(now, in.relayMv, want);
+    bool holdOk = !pressed && _w[0].state() != WinState::FAULT && _w[1].state() != WinState::FAULT;
+    _relay.tick(now, in.relayMv, want, holdOk);
     out.fetA = _relay.fetA();
     out.fetB = _relay.fetB();
     for (uint8_t i = 0; i < 2; i++) {

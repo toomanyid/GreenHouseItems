@@ -657,9 +657,17 @@ static void test_relay_selftest_and_engage() {
     CHECK(r.fetA() && r.fetB());
     for (int i = 0; i < 12; i++) { r.tick(t, 24000, true); t += 10; }
     CHECK(r.ready());
-    // 떼기: 0.1초 기다린 뒤
+    // 멈추면 10초 더 붙여 둔다. 그 안에 다시 구동하면 바로 준비
     r.tick(t, 24000, false); t += 10;
     CHECK(!r.ready() && r.fetA());
+    for (int i = 0; i < 500; i++) { r.tick(t, 24000, false); t += 10; }
+    CHECK(r.fetA() && r.fetB());
+    r.tick(t, 24000, true); t += 10;
+    CHECK(r.ready());
+    // 떼기: 유지 시간이 지나고 0.1초 뒤
+    uint32_t stop = t;
+    for (; t - stop < RELAY_HOLD_MS; t += 10) r.tick(t, 24000, false);
+    CHECK(r.fetA() && r.fetB());
     for (int i = 0; i < 11; i++) { r.tick(t, 20000, false); t += 10; }
     CHECK(!r.fetA() && !r.fetB());
     // 뗀 뒤 전압이 남으면 접점 붙음
@@ -673,6 +681,18 @@ static void test_relay_selftest_detects_shorted_fet() {
     uint32_t t = 0;
     for (; t < 2000; t += 10) r.tick(t, r.fetA() ? 24000 : 0, false);   // A만 켰는데 전압: B 붙음
     CHECK(r.fault());
+}
+
+static void test_relay_release_without_hold() {
+    RelayControl r;
+    r.begin(0);
+    uint32_t t = 0;
+    for (; t < 2000 && !r.selfTestDone(); t += 10) r.tick(t, 0, false);
+    for (int i = 0; i < 15; i++) { r.tick(t, (r.fetA() && r.fetB()) ? 24000 : 0, true); t += 10; }
+    CHECK(r.ready());
+    // 비상정지나 고장: 유지 시간 없이 0.1초 뒤 뗀다
+    for (int i = 0; i < 12; i++) { r.tick(t, 24000, false, false); t += 10; }
+    CHECK(!r.fetA() && !r.fetB());
 }
 #else
 // 책상 시험 빌드: 실제 전압이 어떻든 정상 릴레이로 본다
@@ -733,6 +753,7 @@ int main() {
 #else
     RUN(test_relay_selftest_and_engage);
     RUN(test_relay_selftest_detects_shorted_fet);
+    RUN(test_relay_release_without_hold);
 #endif
     RUN(test_current_monitor);
     return finish();

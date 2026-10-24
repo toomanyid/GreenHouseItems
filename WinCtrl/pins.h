@@ -6,10 +6,10 @@
 //  핀 번호는 1층(dev_*)에서만 쓴다.
 // ============================================================
 const uint8_t PIN_ESTOP_SENSE  = 1;   // 비상정지 감지 (아날로그, 분압 100k/10k)
-const uint8_t PIN_TEMP_SENSE   = 2;   // 온도 센서 4~20mA (감지 저항 150Ω)
+const uint8_t PIN_TEMP_SENSE   = 2;   // 온도 센서 4~20mA (감지 저항 120Ω)
 const uint8_t PIN_M1_CURRENT   = 4;   // 모터1 전류 (R_IS + L_IS)
 const uint8_t PIN_M2_CURRENT   = 5;   // 모터2 전류
-const uint8_t PIN_RELAY_SENSE  = 6;   // 주 릴레이 뒤 전압 (분압 100k/10k)
+const uint8_t PIN_RELAY_SENSE  = 6;   // 주 차단 MC 뒤 전압 (분압 100k/10k)
 const uint8_t PIN_S1           = 7;   // 원점 센서1 on/off (포토커플러, ON이면 LOW)
 const uint8_t PIN_LCD_SDA      = 8;
 const uint8_t PIN_LCD_SCL      = 9;
@@ -20,7 +20,7 @@ const uint8_t PIN_M1_EN        = 13;  // 모터1 R_EN + L_EN
 const uint8_t PIN_M2_RPWM      = 14;
 const uint8_t PIN_M2_LPWM      = 15;
 const uint8_t PIN_M2_EN        = 16;
-const uint8_t PIN_RELAY_FET_A  = 17;  // 릴레이 코일 쪽 FET
+const uint8_t PIN_RELAY_FET_A  = 17;  // MC 코일 +24V 쪽 FET
 // 18, 19, 20번은 여유 (19, 20은 직결 USB 핀)
 const uint8_t PIN_RELAY_FET_B  = 21;  // GND 쪽 FET
 const uint8_t PIN_MODEL_JUMPER = 39;  // 모델 구분: 열림(HIGH) 300W, GND(LOW) 50W

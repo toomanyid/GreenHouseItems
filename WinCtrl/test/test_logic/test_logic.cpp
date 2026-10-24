@@ -296,7 +296,8 @@ static void test_dispatcher_boot_and_move() {
     CHECK_NEAR(status.win[0].pos, 5000, 5);
     CHECK(status.win[1].posState == PosState::UNKNOWN);      // 온도제어가 움직이지 않음
     CHECK(status.temp.paused);
-    CHECK(s.out.fetA == false && s.out.fetB == false);       // 멈추면 릴레이를 뗀다
+    s.run(RELAY_HOLD_MS + 500);
+    CHECK(s.out.fetA == false && s.out.fetB == false);       // 멈추고 10초 지나면 MC를 뗀다
 }
 
 static void test_dispatcher_estop_and_relay() {
@@ -317,6 +318,8 @@ static void test_dispatcher_estop_and_relay() {
     s.d.fillStatus(status);
     CHECK(status.estop && status.win[1].state == WinState::ESTOP);
     CHECK(s.out.dir[1] == 0);
+    s.run(200);
+    CHECK(s.out.fetA == false && s.out.fetB == false);       // 비상정지는 유지 시간 없이 MC를 뗀다
     s.estopMv = 24000;
     s.run(50);
     s.d.fillStatus(status);

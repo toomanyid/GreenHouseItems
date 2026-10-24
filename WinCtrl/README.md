@@ -43,8 +43,8 @@ ESP32-S3로 측창 모터 2대를 초 단위로 움직이는 제어기의 펌웨
 |---|---|---|
 | 4. 입력 | `io_UiTask`, `io_Sound`, `io_Format` | LCD 화면, 엔코더 조작과 설정 메뉴, 소리, 설정과 에러 저장 |
 | 3. 조정 | `app_ControlTask`, `app_Dispatcher`, `app_TempControl` | 10ms 제어 주기, 얼럿과 잡 처리, 온도제어 |
-| 2. 제어 | `ctl_Window`, `ctl_Safety` | 창의 상태 흐름, 위치 계산, 전류와 릴레이 판정 |
-| 1. 장치 | `dev_*` | 센서, 모터 드라이버, 릴레이, LCD, 엔코더, 피에조, 온도 센서 |
+| 2. 제어 | `ctl_Window`, `ctl_Safety` | 창의 상태 흐름, 위치 계산, 전류와 MC 판정 |
+| 1. 장치 | `dev_*` | 센서, 모터 드라이버, MC, LCD, 엔코더, 피에조, 온도 센서 |
 | 공통 | `pins.h`, `config.h`, `Types.h`, `Settings`, `Store`, `ErrorLog` | 핀, 상수, 구조체, 설정 범위, 플래시 저장 |
 
 `dev_Compat.h`는 ESP32 아두이노 코어 2.x와 3.x의 PWM 함수 차이를 감쌉니다.
@@ -65,7 +65,7 @@ sh test/check_compile.sh   # 아두이노 쪽 파일까지 가짜 헤더로 문�
 `config.h`에서 `(임시)`가 붙은 값은 실물로 확인한 뒤 고칩니다.
 
 - 전류 환산 `BTS_KILIS`(8500), 드라이버 고장 전압 `DRIVER_FAULT_MV`
-- 릴레이 전압 경계 `RELAY_ON_MV`, `RELAY_OFF_MV`, 뗀 뒤 확인 시간 `RELAY_DECAY_MS`, 떼기 전 대기 `RELAY_RELEASE_DELAY_MS`
+- MC 전압 경계 `RELAY_ON_MV`, `RELAY_OFF_MV`, 뗀 뒤 확인 시간 `RELAY_DECAY_MS`, 떼기 전 대기 `RELAY_RELEASE_DELAY_MS`
 - 비상정지 전압 경계 `ESTOP_OK_MV`
 - 원점 센서 유지 시간 `SENSOR_DEBOUNCE_MS`, 위치 확인 여유 `POS_CHECK_MARGIN`, CLOSE 여유 `CLOSE_MARGIN`, 리밋 여유 `LIMIT_BACKUP_MARGIN`
 - 해제 후 재고장 시간 `REFAULT_WINDOW_MS`
