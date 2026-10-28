@@ -4,8 +4,11 @@
 set -e
 cd "$(dirname "$0")/.."
 CXX=${CXX:-g++}
-for f in *.cpp; do
-  $CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-truncation -fsyntax-only -Itest/stubs -I. "$f"
+# 두 번째는 UI 시험 빌드 (-DWINCTRL_UISIM)
+for def in "" "-DWINCTRL_UISIM"; do
+  for f in *.cpp; do
+    $CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-truncation -fsyntax-only -Itest/stubs -I. $def "$f"
+  done
+  $CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-truncation -fsyntax-only -Itest/stubs -I. $def -x c++ WinCtrl.ino
 done
-$CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-truncation -fsyntax-only -Itest/stubs -I. -x c++ WinCtrl.ino
 echo "문법 확인 통과"

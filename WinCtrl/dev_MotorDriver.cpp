@@ -1,6 +1,10 @@
 #include "dev_Compat.h"
 #include "dev_MotorDriver.h"
 #include "config.h"
+#ifdef WINCTRL_UISIM
+#include "dev_Sim.h"
+#include "pins.h"
+#endif
 
 void MotorDriver::begin(uint8_t pinR, uint8_t pinL, uint8_t pinEn, uint8_t pinIs,
                         uint8_t chR, uint8_t chL, int32_t senseOhm, uint32_t now) {
@@ -20,6 +24,10 @@ void MotorDriver::begin(uint8_t pinR, uint8_t pinL, uint8_t pinEn, uint8_t pinIs
 
 void MotorDriver::apply(int8_t dir, uint16_t duty) {
     if (duty > DUTY_FULL) duty = DUTY_FULL;
+    _duty = dir == 0 ? 0 : duty;
+#ifdef WINCTRL_UISIM
+    dir = 0; duty = 0;          // UI 시험 빌드: 모터 핀은 늘 끊어 둔다
+#endif
     uint32_t raw = (uint32_t)duty * ((1u << PWM_BITS) - 1) / DUTY_FULL;
     if (dir == 0 || duty == 0) {
         digitalWrite(_en, LOW);
@@ -55,8 +63,16 @@ void MotorDriver::drive(int8_t dir, uint16_t duty, uint32_t now) {
 }
 
 void MotorDriver::sense() {
+#ifdef WINCTRL_UISIM
+    // 지난 한 주기(10ms) 동안 걸었던 방향과 출력으로 가짜 창을 움직이고 전류를 만든다
+    SimWindow& w = simWindow(_is == PIN_M1_CURRENT ? 0 : 1);
+    w.step(_dir, _duty, CONTROL_PERIOD_MS);
+    _fault = false;
+    _ma = w.currentMa(_dir, _duty);
+#else
     int32_t mv = readMv(_is, 4);
     _fault = mv >= DRIVER_FAULT_MV;
     // 부하 전류 = IS 전류 × KILIS, IS 전류 = 전압 ÷ 감지 저항
     _ma = (int32_t)((int64_t)mv * BTS_KILIS / _ohm);
+#endif
 }

@@ -14,4 +14,5 @@ public:
     int32_t estopMv() const;     // 비상 버튼 뒤 24V 쪽 전압 (mV)
 private:
     uint8_t _a = 0, _b = 0, _rs = 0, _es = 0;
+    bool    _onA = false, _onB = false;   // 2층이 건 값 (UI 시험 빌드의 가짜 전압이 씀)
 };

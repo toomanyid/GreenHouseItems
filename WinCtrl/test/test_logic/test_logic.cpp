@@ -6,6 +6,7 @@
 #include "../../ctl_Safety.h"
 #include "../../app_TempControl.h"
 #include "../../app_Dispatcher.h"
+#include "../../dev_Sim.h"
 #include "../../Settings.h"
 
 static bool eq(const char* a, const char* b) {
@@ -363,6 +364,54 @@ static void test_dispatcher_temp_lost() {
     CHECK(status.temp.valid);
 }
 
+// ------------------------------------------------------------
+//  UI 시험 빌드의 가짜 개폐기 (dev_Sim.h)로 실제 흐름이 끝까지 도는지
+// ------------------------------------------------------------
+static void test_uisim_plant() {
+    Dispatcher d;
+    Settings st;
+    SettingsRules::defaults(st);                              // 빈 설정: 처음 켠 보드와 같음
+    SimWindow w[2];
+    bool fetA = false, fetB = false;
+    ControlOutputs out = {};
+    uint32_t now = 0;
+    d.begin(Model::W50, st, now);
+    auto run = [&](uint32_t ms) {
+        for (uint32_t t = 0; t < ms; t += CONTROL_PERIOD_MS) {
+            ControlInputs in = {};
+            in.now = now;
+            for (int i = 0; i < 2; i++) {
+                w[i].step(out.dir[i], out.duty[i], CONTROL_PERIOD_MS);
+                in.currentMa[i] = w[i].currentMa(out.dir[i], out.duty[i]);
+                in.sensor[i] = w[i].sensorOn() ? SensorState::PRESENT : SensorState::ABSENT;
+            }
+            in.relayMv = (fetA && fetB) ? SIM_24V_MV : 0;
+            in.estopMv = SIM_24V_MV;
+            in.tempUa = SIM_TEMP_UA;
+            out = d.step(in);
+            fetA = out.fetA; fetB = out.fetB;
+            now += CONTROL_PERIOD_MS;
+        }
+    };
+    run(3000);
+    CHECK(d.bootDone());
+    Status status;
+    d.fillStatus(status);
+    CHECK(!status.relayFault && !status.estop);
+    CHECK(status.temp.valid && status.temp.temp == 250);
+
+    Job j = {};
+    j.type = JobType::CALIBRATE; j.source = JobSource::ENCODER; j.window = 0;
+    CHECK(d.job(j, now));
+    run(150000);
+    d.fillStatus(status);
+    CHECK(status.win[0].cal.phase == CalPhase::DONE);
+    CHECK(!status.win[0].cal.outOfRange);
+    CHECK_NEAR(status.win[0].cal.totalUp, SIM_TRAVEL_CS, 3);
+    CHECK(status.win[0].state == WinState::IDLE);
+    CHECK(w[0].pos() == 0);
+}
+
 int main() {
     RUN(test_format_values);
     RUN(test_format_lines);
@@ -373,5 +422,6 @@ int main() {
     RUN(test_dispatcher_boot_and_move);
     RUN(test_dispatcher_estop_and_relay);
     RUN(test_dispatcher_temp_lost);
+    RUN(test_uisim_plant);
     return finish();
 }

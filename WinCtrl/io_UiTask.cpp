@@ -673,7 +673,11 @@ void Ui::drawSplash() {
     char top[17];
     Fmt::splashTop(top, PRODUCT_NAME, FW_VERSION_MAJOR, FW_VERSION_MINOR);
     _lcd.setLine(0, top);
+#ifdef WINCTRL_UISIM
+    _lcd.setLine(1, "  UI SIM BUILD  ");    // 가짜 장치로 도는 시험 빌드
+#else
     _lcd.setLine(1, _dateLine);
+#endif
 }
 
 // ============================================================
