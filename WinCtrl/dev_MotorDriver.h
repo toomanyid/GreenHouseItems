@@ -26,6 +26,7 @@ private:
     uint8_t  _r = 0, _l = 0, _en = 0, _is = 0, _chR = 0, _chL = 0;
     int32_t  _ohm = 1000;
     int8_t   _dir = 0;          // 지금 걸린 방향
+    uint16_t _duty = 0;         // 지금 걸린 출력 (UI 시험 빌드의 가짜 창이 씀)
     int8_t   _lastDir = 0;      // 마지막으로 구동한 방향
     uint32_t _stopMs = 0;       // 멈춘 시각
     int32_t  _ma = 0;

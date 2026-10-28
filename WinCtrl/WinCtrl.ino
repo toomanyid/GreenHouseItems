@@ -52,6 +52,9 @@ void setup() {
 #ifdef WINCTRL_BENCH
     Serial.println("[boot] !!! BENCH BUILD: relay voltage check OFF. Do not install. !!!");
 #endif
+#ifdef WINCTRL_UISIM
+    Serial.println("[boot] !!! UI SIM BUILD: motors, relay, E-STOP, sensors are FAKE. Do not install. !!!");
+#endif
 
     // 모델 구분 점퍼: 열림(HIGH) 300W, GND(LOW) 50W
     pinMode(PIN_MODEL_JUMPER, INPUT_PULLUP);

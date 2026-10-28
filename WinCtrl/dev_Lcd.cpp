@@ -9,6 +9,14 @@ static const uint8_t BIT_RS = 0x01;
 static const uint8_t BIT_EN = 0x04;
 static const uint8_t BIT_BL = 0x08;
 
+// 2004 LCD 백팩 주소 (PCF8574T에서 A0만 이음)
+static const uint8_t LCD2004_ADDR = 0x26;
+
+const char* Lcd::kind() const {
+    if (_oled) return "OLED";
+    return _addr == LCD2004_ADDR ? "LCD2004" : "LCD1602";
+}
+
 bool Lcd::probe(uint8_t addr) {
     Wire.beginTransmission(addr);
     return Wire.endTransmission() == 0;
@@ -48,6 +56,7 @@ void Lcd::reinit() {
         _oled = false;
         if (probe(0x27)) _addr = 0x27;
         else if (probe(0x3F)) _addr = 0x3F;
+        else if (probe(LCD2004_ADDR)) _addr = LCD2004_ADDR;   // 2004: 1602와 줄 시작 주소가 같다
         else if (probe(0x3C)) { _addr = 0x3C; _oled = true; }
         else if (probe(0x3D)) { _addr = 0x3D; _oled = true; }
         else { _ok = false; return; }

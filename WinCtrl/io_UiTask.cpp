@@ -126,11 +126,11 @@ private:
     void mainShort(uint32_t now);
     void mainSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t now);
     void mainTick(uint32_t now);
-    void drawMain(uint32_t now);
-    void drawSmall(uint32_t now);
-    void drawBig(uint32_t now);
+    void drawMain();
+    void drawSmall();
+    void drawBig();
     void bigDecimal(int8_t digit);
-    void drawWide(uint32_t now);
+    void drawWide();
     void useGlyphs(Glyphs g);
     bool hasTemp() const { return _st.temp.found; }
     bool anyMoving() const;
@@ -146,8 +146,6 @@ private:
     pct_t startPct(uint8_t w) const;
     void cancelEdit();
     void commitPos(uint32_t now);
-    bool blinkSel(uint32_t now) const { return now % BLINK_SEL_MS < BLINK_SEL_ON_MS; }
-    bool blinkEdit(uint32_t now) const { return (now / BLINK_MS) % 2 == 0; }
 
     // 설정 메뉴
     void enterMenu(uint32_t now);
@@ -155,7 +153,7 @@ private:
     void menuShort(uint32_t now);
     void menuSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t now);
     void menuTick(uint32_t now);
-    void drawMenu(uint32_t now);
+    void drawMenu();
     uint8_t listCount() const;
     const FieldDef& field(uint8_t i) const;
     int32_t getField(const Settings& s, uint8_t i) const;
@@ -171,7 +169,7 @@ private:
 
     // 공통
     void consumeEvents(uint32_t now);
-    void drawEstop(uint32_t now);
+    void drawEstop();
     void drawSplash();
 
     Lcd      _lcd;
@@ -207,7 +205,6 @@ private:
     uint8_t  _blMode = 0xFF;      // 시리얼 확인용: 0 꺼짐, 1 켜짐, 2 깜빡임
     int8_t   _pendDir = 0;
     uint32_t _pendMs = 0;
-    bool     _burst = false;
     uint32_t _lastLcdInit = 0;
 
     // 평소 화면
@@ -344,7 +341,7 @@ void Ui::logLcd(const char* what) const {
         return;
     }
     Serial.printf("[lcd] %s 0x%02X %s %s, backlight %s\n", what, _lcd.addr(),
-                  _lcd.isOled() ? "OLED" : "LCD", _lcd.ok() ? "OK" : "FAIL", _backlight ? "ON" : "OFF");
+                  _lcd.kind(), _lcd.ok() ? "OK" : "FAIL", _backlight ? "ON" : "OFF");
 }
 
 bool Ui::sensorActive(uint8_t w, const Settings& s) const {
@@ -392,9 +389,9 @@ void Ui::tick() {
     else if (_screen == Screen::MENU) menuTick(now);
 
     if (_screen == Screen::SPLASH) drawSplash();
-    else if (_st.estop) drawEstop(now);
-    else if (_screen == Screen::MAIN) drawMain(now);
-    else drawMenu(now);
+    else if (_st.estop) drawEstop();
+    else if (_screen == Screen::MAIN) drawMain();
+    else drawMenu();
 
     // 백라이트: 조작하면 켜고 5분 뒤 끈다. 창이 움직이는 것만으로는 켜지 않는다.
     // 고장, 에러, 비상정지가 있으면 끄지 않고 1초 간격으로 깜빡인다 (스펙 7절)
@@ -524,19 +521,11 @@ void Ui::onSteps(const EncStep* st, uint8_t n, uint32_t now) {
     int8_t dirs[16];
     uint32_t gaps[16];
     uint8_t m = 0;
-    bool strict = _screen == Screen::MAIN;
     for (uint8_t i = 0; i < n; i++) {
+        // 칸 사이 시간은 빨리 돌리기 판정에만 쓴다. 방향이 바뀌었거나 오래 쉬었으면 느린 칸으로 본다
         uint32_t gap = st[i].ms - _pendMs;
         bool same = _pendDir == st[i].dir && gap <= ENC_VALID_WINDOW_MS;
-        if (!strict) {
-            dirs[m] = st[i].dir; gaps[m] = same ? gap : 1000; m++;
-        } else if (same) {
-            // 0.5초 안에 같은 방향 두 칸 이상이어야 입력으로 받는다. 첫 칸도 함께 넣는다
-            if (!_burst) { dirs[m] = st[i].dir; gaps[m] = 1000; m++; _burst = true; }
-            dirs[m] = st[i].dir; gaps[m] = gap; m++;
-        } else {
-            _burst = false;
-        }
+        dirs[m] = st[i].dir; gaps[m] = same ? gap : 1000; m++;
         _pendDir = st[i].dir;
         _pendMs = st[i].ms;
         if (m >= 15) break;
@@ -665,11 +654,15 @@ void Ui::mainSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t
     if (errorScreen()) { _snd.play(Snd::ERROR_BEEP); return; }   // 에러를 먼저 확인한다
     _selMs = now;
     bool changed = false, bumped = false;
+    // 입력 중이 아니면 첫 칸은 값을 바꾸지 않고 입력을 시작만 한다.
+    // 한 칸짜리 튀는 신호는 여기서 걸러지고, 2초 동안 더 돌리지 않으면 아무것도 하지 않고 끝난다
+    bool arming = _item == Item::TEMP ? !_editTemp : !_editPos;
+    uint8_t first = arming ? 1 : 0;
 
     if (_item == Item::TEMP) {
         // 설정 온도: 0.5도씩
         if (!_editTemp) { _editTemp = true; _editSetT = _s.temp.setT; }
-        for (uint8_t i = 0; i < n; i++) {
+        for (uint8_t i = first; i < n; i++) {
             int32_t v = _editSetT + dirs[i] * 5;
             if (v < 0 || v > 500) { bumped = true; continue; }
             _editSetT = (int16_t)v;
@@ -690,7 +683,7 @@ void Ui::mainSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t
         }
         // 위치 동기는 두 창에 같은 증감을 더한다. 닫을 때 낮은 쪽이 0.0이 되어도 높은 쪽은 계속 내려가고,
         // 열 때 높은 쪽이 리밋에서 멈춰도 낮은 쪽은 계속 올라간다
-        for (uint8_t i = 0; i < n; i++) {
+        for (uint8_t i = first; i < n; i++) {
             pct_t step = (pct_t)stepSize(PCT_STEP, gaps[i]);
             bool any = false;
             for (uint8_t w = 0; w < 2; w++) {
@@ -712,7 +705,7 @@ void Ui::mainSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t
         }
     }
     _editMs = now;
-    if (changed) _snd.play(Snd::CLICK);          // 한 주기에 여러 칸이어도 한 번
+    if (changed || arming) _snd.play(Snd::CLICK);   // 한 주기에 여러 칸이어도 한 번
     else if (bumped) _snd.play(Snd::BUMP);
 }
 
@@ -789,20 +782,19 @@ void Ui::useGlyphs(Glyphs g) {
     _glyphs = g;
 }
 
-void Ui::drawMain(uint32_t now) {
+void Ui::drawMain() {
     bool homing = _st.win[0].state == WinState::HOMING || _st.win[1].state == WinState::HOMING;
     // 확인하지 않은 고장이나 에러, 원점 찾기는 작은 글씨 화면 (입력 중이면 입력 화면을 보인다)
-    if (errorScreen() || (homing && !_editPos && !_editTemp)) drawSmall(now);
-    else if (_item == Item::TEMP || _item == Item::SYNC) drawBig(now);
-    else drawWide(now);
+    if (errorScreen() || (homing && !_editPos && !_editTemp)) drawSmall();
+    else if (_item == Item::TEMP || _item == Item::SYNC) drawBig();
+    else drawWide();
 }
 
-void Ui::drawSmall(uint32_t now) {
-    bool blinkOn = blinkEdit(now);
+void Ui::drawSmall() {
     char line[17];
     for (uint8_t i = 0; i < 2; i++) {
         bool sensorErr = _log.hasUnacked((uint8_t)(i + 1), Cause::HOME_SENSOR);
-        Fmt::smallLine(line, _st.win[i], (uint8_t)(i + 1), blinkOn, sensorErr);
+        Fmt::smallLine(line, _st.win[i], (uint8_t)(i + 1), sensorErr);
         _lcd.setLine(i, line);
     }
 }
@@ -814,25 +806,23 @@ void Ui::bigDecimal(int8_t digit) {
     Fmt::bigDecHalf(digit, 1, g); _lcd.setGlyph(Fmt::BIG_DEC_SLOT + 1, g);
 }
 
-void Ui::drawBig(uint32_t now) {
+void Ui::drawBig() {
     useGlyphs(Glyphs::BIG);
-    bool st = blinkEdit(now);                 // 상태 글자 0.5초
     char r0[17], r1[17];
     memset(r0, ' ', 16); memset(r1, ' ', 16);
     r0[16] = 0; r1[16] = 0;
     bool moving = anyMoving();
-    char s1 = Fmt::statusChar(_st.win[0], st), s2 = Fmt::statusChar(_st.win[1], st);
+    char s1 = Fmt::statusChar(_st.win[0]), s2 = Fmt::statusChar(_st.win[1]);
 
-    // 오른쪽 위: 현재 온도. 끊기면 --.-C를 깜빡인다
+    // 오른쪽 위: 현재 온도. 끊기면 --.-C
     if (hasTemp()) {
         char t[8];
         if (_st.temp.valid) { Fmt::temp4(t, _st.temp.temp); memcpy(r0 + 11, t, 4); r0[15] = 'C'; }
-        else if (st) memcpy(r0 + 11, "--.-C", 5);
+        else memcpy(r0 + 11, "--.-C", 5);
     }
 
     if (_item == Item::TEMP) {
-        bool show = _editTemp ? blinkEdit(now) : blinkSel(now);
-        if (show) bigDecimal(Fmt::bigNumber(r0, r1, _editTemp ? _editSetT : _s.temp.setT));
+        bigDecimal(Fmt::bigNumber(r0, r1, _editTemp ? _editSetT : _s.temp.setT));
         if (moving) { r1[12] = '1'; r1[13] = s1; r1[14] = '2'; r1[15] = s2; }
         else memcpy(r1 + 13, "SET", 3);
     } else {
@@ -850,9 +840,7 @@ void Ui::drawBig(uint32_t now) {
         }
         if (unknown) low = PCT_UNKNOWN;
         bool differ = mask == 3 && v[0] != v[1];
-        // 움직이는 중에는 현재 위치라 깜빡이지 않는다
-        bool show = _editPos ? blinkEdit(now) : (moving ? true : blinkSel(now));
-        if (show) bigDecimal(Fmt::bigNumber(r0, r1, low));
+        bigDecimal(Fmt::bigNumber(r0, r1, low));
         if (hasTemp()) {
             memcpy(r1 + 11, "MAN", 3);
             if (moving) { r1[14] = s1; r1[15] = s2; }
@@ -867,11 +855,10 @@ void Ui::drawBig(uint32_t now) {
     _lcd.setLine(1, r1);
 }
 
-// 개별 화면: 윗줄 창1, 아랫줄 창2. 고른 창의 값만 깜빡인다
-void Ui::drawWide(uint32_t now) {
+// 개별 화면: 윗줄 창1, 아랫줄 창2. 고른 창은 번호 옆에 *
+void Ui::drawWide() {
     useGlyphs(Glyphs::WIDE);
     uint8_t sel = _item == Item::W1 ? 0 : 1;
-    bool st = blinkEdit(now);
     pct_t v[2];
     bool need[10] = {};
     for (uint8_t w = 0; w < 2; w++) {
@@ -895,28 +882,23 @@ void Ui::drawWide(uint32_t now) {
         bool moving = s == WinState::MOVING || s == WinState::CLOSING || s == WinState::REVERSE_WAIT;
         memset(extra, ' ', 7);
         extra[7] = 0;
-        extra[6] = Fmt::statusChar(ws, st);
+        extra[6] = Fmt::statusChar(ws);
         if (!editing && moving && v[w] >= 0) {
-            // 목표와 방향. 고른 창이면 목표가 깜빡인다
-            if (!mine || blinkSel(now)) {
-                char t[8];
-                Fmt::pct4(t, Fmt::targetPct(ws));
-                extra[0] = '>';
-                memcpy(extra + 1, t, 4);
-            }
+            // 목표와 방향
+            char t[8];
+            Fmt::pct4(t, Fmt::targetPct(ws));
+            extra[0] = '>';
+            memcpy(extra + 1, t, 4);
         } else if (!editing && v[w] == PCT_CLOSE) {
             memcpy(extra, "CLOSE", 5);
         }
-        bool show = true;
-        if (mine) show = editing ? blinkEdit(now) : (moving ? true : blinkSel(now));
-        Fmt::wideLine(line, (uint8_t)(w + 1), v[w], _wide, show, extra);
+        Fmt::wideLine(line, (uint8_t)(w + 1), v[w], _wide, mine, extra);
         _lcd.setLine(w, line);
     }
 }
 
-void Ui::drawEstop(uint32_t now) {
-    bool on = (now / BLINK_MS) % 2 == 0;
-    _lcd.setLine(0, on ? " *** E-STOP *** " : "");
+void Ui::drawEstop() {
+    _lcd.setLine(0, " *** E-STOP *** ");
     _lcd.setLine(1, " RELEASE BUTTON ");
 }
 
@@ -924,7 +906,11 @@ void Ui::drawSplash() {
     char top[17];
     Fmt::splashTop(top, PRODUCT_NAME, FW_VERSION_MAJOR, FW_VERSION_MINOR);
     _lcd.setLine(0, top);
+#ifdef WINCTRL_UISIM
+    _lcd.setLine(1, "  UI SIM BUILD  ");    // 가짜 장치로 도는 시험 빌드
+#else
     _lcd.setLine(1, _dateLine);
+#endif
 }
 
 // ============================================================
@@ -1367,10 +1353,9 @@ void Ui::menuTick(uint32_t now) {
     if (now - _lastInputMs >= MENU_TIMEOUT_MS && !anyMoving()) exitMenu();
 }
 
-void Ui::drawMenu(uint32_t now) {
+void Ui::drawMenu() {
     char l0[17], l1[17], b[17];
     memset(l1, 0, sizeof(l1));
-    bool blinkOn = (now / BLINK_MS) % 2 == 0;
 
     switch (_lv) {
     case Level::TOP:
@@ -1390,10 +1375,9 @@ void Ui::drawMenu(uint32_t now) {
         }
         snprintf(left, sizeof(left), "%s%s", prefix, field(_idx).name);
         header(l0, left, (uint16_t)(_idx + 1), listCount());
-        // 값을 바꾸는 중에는 값만 깜빡인다. 항목 이름은 깜빡이지 않는다 (스펙 7절)
+        // 값을 바꾸는 중에는 값 앞에 >를 붙인다
         fmtField(b, _idx, _lv == Level::EDIT ? _val : getField(_s, _idx));
-        if (_lv == Level::EDIT && !blinkOn) strcpy(l1, "");
-        else snprintf(l1, sizeof(l1), "%s", b);
+        snprintf(l1, sizeof(l1), "%s%s", _lv == Level::EDIT ? ">" : "", b);
         break;
     }
     case Level::CAL_SELECT:
@@ -1415,7 +1399,7 @@ void Ui::drawMenu(uint32_t now) {
         default: break;
         }
         snprintf(l0, sizeof(l0), "CAL W%u %-8s", (unsigned)(_calWin + 1), ph);
-        l0[15] = w.dir > 0 ? (blinkOn ? '^' : ' ') : (w.dir < 0 ? (blinkOn ? 'v' : ' ') : ' ');
+        l0[15] = w.dir > 0 ? '^' : (w.dir < 0 ? 'v' : ' ');
         l0[16] = 0;
         char t[8], a[10];
         Fmt::secs(t, w.cal.elapsed, 5);
@@ -1445,9 +1429,8 @@ void Ui::drawMenu(uint32_t now) {
     }
     case Level::CAL_SAVE:
         snprintf(l0, sizeof(l0), "W%u SAVE RESULT?", (unsigned)(_calWin + 1));
-        // 고른 쪽이 깜빡인다
-        strcpy(l1, "YES   NO");
-        if (!blinkOn) memcpy(l1 + (_calYes ? 0 : 6), _calYes ? "   " : "  ", _calYes ? 3 : 2);
+        // 고른 쪽을 [ ]로 감싼다
+        strcpy(l1, _calYes ? "[YES]  NO" : " YES  [NO]");
         break;
     case Level::DIAG: {
         uint8_t pages = _st.temp.found ? 4 : 3;
