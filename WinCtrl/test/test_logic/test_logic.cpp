@@ -96,18 +96,18 @@ static void test_format_big() {
     char r0[17], r1[17];
     std::memset(r0, ' ', 16); std::memset(r1, ' ', 16); r0[16] = r1[16] = 0;
     Fmt::bigNumber(r0, r1, 280);
-    // 2: UUF / FBB, 8: FUF / FBF, 소수점, 0: FTF / FBF
-    const char want0[12] = { Fmt::G_BOTH, Fmt::G_BOTH, Fmt::G_FULL, ' ', Fmt::G_FULL, Fmt::G_BOTH, Fmt::G_FULL, ' ',
-                             Fmt::G_FULL, Fmt::G_TOP, Fmt::G_FULL, 0 };
-    const char want1[12] = { Fmt::G_FULL, Fmt::G_BOT, Fmt::G_BOT, ' ', Fmt::G_FULL, Fmt::G_BOT, Fmt::G_FULL, Fmt::G_DOT,
-                             Fmt::G_FULL, Fmt::G_BOT, Fmt::G_FULL, 0 };
-    CHECK(std::memcmp(r0, want0, 11) == 0);
-    CHECK(std::memcmp(r1, want1, 11) == 0);
-    CHECK(r0[11] == ' ');                                       // 오른쪽 5칸은 건드리지 않음
+    // 2: " UR" / "LB ", 8: "LUR" / "LBR", 소수점, 0: "LTR" / "LBR" (U 위아래, T 위, B 아래 가로획)
+    const char want0[11] = { ' ', Fmt::G_BOTH, Fmt::G_VR, Fmt::G_VL, Fmt::G_BOTH, Fmt::G_VR, ' ',
+                             Fmt::G_VL, Fmt::G_TOP, Fmt::G_VR, 0 };
+    const char want1[11] = { Fmt::G_VL, Fmt::G_BOT, ' ', Fmt::G_VL, Fmt::G_BOT, Fmt::G_VR, Fmt::G_DOT,
+                             Fmt::G_VL, Fmt::G_BOT, Fmt::G_VR, 0 };
+    CHECK(std::memcmp(r0, want0, 10) == 0);
+    CHECK(std::memcmp(r1, want1, 10) == 0);
+    CHECK(r0[10] == ' ');                                       // 오른쪽 6칸은 건드리지 않음
     Fmt::bigNumber(r0, r1, 55);                                 // 10 아래는 앞자리를 비운다
     CHECK(r0[0] == ' ' && r0[1] == ' ' && r0[2] == ' ' && r1[0] == ' ');
     Fmt::bigNumber(r0, r1, PCT_UNKNOWN);
-    CHECK(r0[0] == Fmt::G_BOT && r1[0] == ' ');
+    CHECK(r0[1] == Fmt::G_BOT && r0[0] == ' ' && r1[1] == ' ');
 
     // 가로 두 배 숫자: 9x7 점, 맨 왼쪽 줄과 맨 아래 줄은 빈다
     for (uint8_t d = 0; d < 10; d++) {

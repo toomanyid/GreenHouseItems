@@ -778,7 +778,7 @@ void Ui::mainTick(uint32_t now) {
     }
 }
 
-// 사용자 글자를 화면에 맞게 넣는다. 큰 글씨는 막대 5개, 개별 화면은 숫자 반쪽 8개
+// 사용자 글자를 화면에 맞게 넣는다. 큰 글씨는 획 7개, 개별 화면은 숫자 반쪽 8개
 void Ui::useGlyphs(Glyphs g) {
     if (g == Glyphs::BIG) {
         for (uint8_t i = 0; i < Fmt::BIG_GLYPH_COUNT; i++) _lcd.setGlyph(i, Fmt::BIG_GLYPHS[i]);

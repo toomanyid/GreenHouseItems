@@ -172,61 +172,56 @@ void smallLine(char* out, const WindowStatus& w, uint8_t num, bool blinkOn, bool
 //  큰 글씨
 // ------------------------------------------------------------
 const uint8_t BIG_GLYPHS[BIG_GLYPH_COUNT][8] = {
-    { 31, 31, 31, 0, 0, 0, 0, 0 },        // 위 막대
-    { 0, 0, 0, 0, 0, 31, 31, 31 },        // 아래 막대
-    { 31, 31, 31, 0, 0, 31, 31, 31 },     // 위아래 막대
+    { 7, 7, 7, 7, 7, 7, 7, 7 },           // 왼쪽 세로획
+    { 28, 28, 28, 28, 28, 28, 28, 28 },   // 오른쪽 세로획
+    { 31, 31, 0, 0, 0, 0, 0, 0 },         // 위 가로획
+    { 0, 0, 0, 0, 0, 0, 31, 31 },         // 아래 가로획
+    { 31, 31, 0, 0, 0, 0, 31, 31 },       // 위아래 가로획
     { 0, 0, 0, 0, 0, 0, 14, 14 },         // 소수점
     { 2, 2, 31, 4, 31, 8, 8, 0 },         // ≠
 };
 
-// 숫자마다 윗줄 3칸, 아랫줄 3칸. F 꽉 참, T 위 막대, B 아래 막대, U 위아래 막대
-static const char* const BIG_DIGITS[10][2] = {
-    { "FTF", "FBF" }, { "TF ", "BFB" }, { "UUF", "FBB" }, { "UUF", "BBF" }, { "FBF", "  F" },
-    { "FUU", "BBF" }, { "FUU", "FBF" }, { "TTF", "  F" }, { "FUF", "FBF" }, { "FUF", "BBF" },
-};
-static const char* const BIG_DASH[2] = { "BBB", "   " };
-
-static char bigCode(char k) {
-    switch (k) {
-    case 'F': return G_FULL;
-    case 'T': return G_TOP;
-    case 'B': return G_BOT;
-    case 'U': return G_BOTH;
-    default:  return ' ';
-    }
-}
-
-static void bigDigit(char* row0, char* row1, uint8_t col, const char* const g[2]) {
-    for (uint8_t k = 0; k < 3; k++) {
-        row0[col + k] = bigCode(g[0][k]);
-        row1[col + k] = bigCode(g[1][k]);
-    }
-}
-
-void bigNumber(char* row0, char* row1, int16_t tenths) {
-    for (uint8_t c = 0; c < 11; c++) { row0[c] = ' '; row1[c] = ' '; }
-    row1[7] = G_DOT;
-    if (tenths < 0) {
-        bigDigit(row0, row1, 0, BIG_DASH);
-        bigDigit(row0, row1, 4, BIG_DASH);
-        bigDigit(row0, row1, 8, BIG_DASH);
-        return;
-    }
-    if (tenths > 999) tenths = 999;
-    uint8_t tens = (uint8_t)(tenths / 100), ones = (uint8_t)(tenths / 10 % 10), dec = (uint8_t)(tenths % 10);
-    if (tens) bigDigit(row0, row1, 0, BIG_DIGITS[tens]);     // 10 아래는 앞자리를 비운다
-    bigDigit(row0, row1, 4, BIG_DIGITS[ones]);
-    bigDigit(row0, row1, 8, BIG_DIGITS[dec]);
-}
-
-// ------------------------------------------------------------
-//  가로 두 배 숫자
-// ------------------------------------------------------------
 // 7획: a 위, b 오른쪽 위, c 오른쪽 아래, d 아래, e 왼쪽 아래, f 왼쪽 위, g 가운데
 static const uint8_t SEGS[10] = {
     0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F,   // 비트 0 = a ... 비트 6 = g
 };
 
+// 가운데 칸: 윗줄은 a(위 2줄)와 g(아래 2줄), 아랫줄은 d(아래 2줄)
+static char bigMid(bool hi, bool lo) {
+    return hi ? (lo ? G_BOTH : G_TOP) : (lo ? G_BOT : ' ');
+}
+
+static void bigDigit(char* row0, char* row1, uint8_t col, uint8_t digit) {
+    uint8_t s = SEGS[digit % 10];
+    row0[col]     = (s & 0x20) ? G_VL : ' ';
+    row0[col + 1] = bigMid(s & 0x01, s & 0x40);
+    row0[col + 2] = (s & 0x02) ? G_VR : ' ';
+    row1[col]     = (s & 0x10) ? G_VL : ' ';
+    row1[col + 1] = bigMid(false, s & 0x08);
+    row1[col + 2] = (s & 0x04) ? G_VR : ' ';
+}
+
+static void bigDash(char* row0, uint8_t col) { row0[col + 1] = G_BOT; }   // 가운데 획만
+
+void bigNumber(char* row0, char* row1, int16_t tenths) {
+    for (uint8_t c = 0; c < 10; c++) { row0[c] = ' '; row1[c] = ' '; }
+    row1[6] = G_DOT;
+    if (tenths < 0) {
+        bigDash(row0, 0);
+        bigDash(row0, 3);
+        bigDash(row0, 7);
+        return;
+    }
+    if (tenths > 999) tenths = 999;
+    uint8_t tens = (uint8_t)(tenths / 100), ones = (uint8_t)(tenths / 10 % 10), dec = (uint8_t)(tenths % 10);
+    if (tens) bigDigit(row0, row1, 0, tens);     // 10 아래는 앞자리를 비운다
+    bigDigit(row0, row1, 3, ones);
+    bigDigit(row0, row1, 7, dec);
+}
+
+// ------------------------------------------------------------
+//  가로 두 배 숫자
+// ------------------------------------------------------------
 void wideHalf(uint8_t digit, uint8_t side, uint8_t out[8]) {
     uint16_t g[8] = {};      // 10점, 비트 9가 맨 왼쪽
     uint8_t s = SEGS[digit % 10];
@@ -275,8 +270,8 @@ void wideNeed(bool need[10], pct_t p) {
 static void wideDigit(char* out, uint8_t col, uint8_t d, const WideSlots& s) {
     for (uint8_t q = 0; q < 4; q++) {
         if (s.digit[q] != (int8_t)d) continue;
-        out[col] = (char)(G_TOP + 2 * q);
-        out[col + 1] = (char)(G_TOP + 2 * q + 1);
+        out[col] = (char)(G_WIDE + 2 * q);
+        out[col + 1] = (char)(G_WIDE + 2 * q + 1);
         return;
     }
     out[col] = (char)('0' + d);      // 칸이 모자라면 작은 숫자로 (그럴 일은 없다)
