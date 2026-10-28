@@ -104,9 +104,9 @@ void splashTop(char* out, const char* name, uint8_t major, uint8_t minor) {
     put(out, 11, v);
 }
 
-char statusChar(const WindowStatus& w, bool blinkOn) {
+char statusChar(const WindowStatus& w) {
     switch (w.state) {
-    case WinState::FAULT:        return blinkOn ? '!' : ' ';
+    case WinState::FAULT:        return '!';
     case WinState::LIMIT:        return 'L';
     case WinState::REVERSE_WAIT: return w.nextDir > 0 ? '^' : (w.nextDir < 0 ? 'v' : ' ');
     case WinState::HOMING:
@@ -114,7 +114,7 @@ char statusChar(const WindowStatus& w, bool blinkOn) {
     case WinState::CLOSING:
     case WinState::CALIBRATING: {
         int8_t d = w.dir != 0 ? w.dir : w.nextDir;
-        if (d == 0 || !blinkOn) return ' ';
+        if (d == 0) return ' ';
         return d > 0 ? '^' : 'v';
     }
     default:
@@ -133,11 +133,11 @@ pct_t targetPct(const WindowStatus& w) {
     return SettingsRules::pctFromPos(w.target, w.maxPos);
 }
 
-void smallLine(char* out, const WindowStatus& w, uint8_t num, bool blinkOn, bool sensorErr) {
+void smallLine(char* out, const WindowStatus& w, uint8_t num, bool sensorErr) {
     char b[12];
     blank(out, 16);
     out[0] = (char)('0' + num);
-    out[15] = statusChar(w, blinkOn);
+    out[15] = statusChar(w);
 
     if (w.state == WinState::FAULT) { put(out, 2, faultLong(w.fault)); return; }
     if (sensorErr) { put(out, 2, "ERR SENSOR"); return; }
@@ -282,11 +282,11 @@ static void wideDigit(char* out, uint8_t col, uint8_t d, const WideSlots& s) {
     out[col] = (char)('0' + d);      // 칸이 모자라면 작은 숫자로 (그럴 일은 없다)
 }
 
-void wideLine(char* out, uint8_t num, pct_t p, const WideSlots& s, bool showValue, const char* extra) {
+void wideLine(char* out, uint8_t num, pct_t p, const WideSlots& s, bool selected, const char* extra) {
     blank(out, 16);
     out[0] = (char)('0' + num);
+    if (selected) out[1] = '*';
     if (extra) put(out, 9, extra);
-    if (!showValue) return;
     if (p < 0) { put(out, 4, "--.-"); return; }
     if (p > PCT_MAX) p = PCT_MAX;
     if (p >= 100) wideDigit(out, 2, (uint8_t)(p / 100), s);

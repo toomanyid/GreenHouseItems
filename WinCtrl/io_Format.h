@@ -35,10 +35,10 @@ pct_t winPct(const WindowStatus& w);
 pct_t targetPct(const WindowStatus& w);
 
 // 줄 끝 상태 글자: ^ 상승, v 하강, L 리밋, ? 위치 모름, ! 고장, 빈칸 대기
-char statusChar(const WindowStatus& w, bool blinkOn);
+char statusChar(const WindowStatus& w);
 
 // 작은 글씨 화면의 창 한 줄 (스펙 7절). "1 45.0>99.9    ^", "1 ERR OVERLOAD !"
-void smallLine(char* out, const WindowStatus& w, uint8_t num, bool blinkOn, bool sensorErr);
+void smallLine(char* out, const WindowStatus& w, uint8_t num, bool sensorErr);
 
 // ------------------------------------------------------------
 //  큰 글씨 (온도, 위치 동기). 숫자 하나는 가로 3칸 세로 2줄, 숫자 사이 한 칸,
@@ -66,9 +66,8 @@ void wideHalf(uint8_t digit, uint8_t side, uint8_t out[8]);
 struct WideSlots { int8_t digit[4]; };
 // 필요한 숫자를 칸에 넣는다. 이미 있는 숫자는 그 칸에 둔다(화면이 덜 깜빡이게)
 void wideAssign(WideSlots& s, const bool need[10]);
-// 개별 화면 한 줄: 0칸 창 번호, 2~5칸 정수 부분(가로 두 배), 6칸 '.', 7칸 소수, 9~15칸 extra.
-// showValue가 false면 값 칸을 비운다(깜빡임)
-void wideLine(char* out, uint8_t num, pct_t p, const WideSlots& s, bool showValue, const char* extra);
+// 개별 화면 한 줄: 0칸 창 번호, 1칸 고른 창이면 *, 2~5칸 정수 부분(가로 두 배), 6칸 '.', 7칸 소수, 9~15칸 extra.
+void wideLine(char* out, uint8_t num, pct_t p, const WideSlots& s, bool selected, const char* extra);
 // wideLine이 쓰는 숫자를 need에 표시한다
 void wideNeed(bool need[10], pct_t p);
 

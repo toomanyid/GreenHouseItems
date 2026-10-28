@@ -58,38 +58,37 @@ static void test_format_values() {
 static void test_format_small() {
     char l[24];
     WindowStatus w = idleWin(PosState::VALID, 9000, 18300);
-    Fmt::smallLine(l, w, 2, true, false); CHECK(eq(l, "2 49.6          "));
+    Fmt::smallLine(l, w, 2, false); CHECK(eq(l, "2 49.6          "));
     w = idleWin(PosState::CLOSED, 0, 18000);
-    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 CLOSE         "));
+    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 CLOSE         "));
     w = idleWin(PosState::UNKNOWN, 0, 18000);
-    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 --.-         ?"));
+    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 --.-         ?"));
 
     w = idleWin(PosState::VALID, 9000, 18300);
     w.state = WinState::MOVING; w.dir = 1; w.target = 18300;
-    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 49.6>99.9    ^"));
-    Fmt::smallLine(l, w, 1, false, false); CHECK(eq(l, "1 49.6>99.9     "));
+    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 49.6>99.9    ^"));
     w.target = -1; w.dir = -1;
-    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 49.6>CLOSE   v"));
+    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 49.6>CLOSE   v"));
 
     w.state = WinState::REVERSE_WAIT; w.dir = 0; w.nextDir = -1;
-    Fmt::smallLine(l, w, 1, false, false); CHECK(l[15] == 'v');   // 전환 정지 중에는 켜 둔다
+    Fmt::smallLine(l, w, 1, false); CHECK(l[15] == 'v');          // 전환 정지 중에는 다음 방향
 
     w = idleWin(PosState::VALID, 18300, 18300);
     w.state = WinState::LIMIT;
-    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 99.9         L"));
+    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 99.9         L"));
 
     w.state = WinState::FAULT; w.fault = Cause::OVERLOAD;
-    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 ERR OVERLOAD !"));
+    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 ERR OVERLOAD !"));
 
     w = idleWin(PosState::UNKNOWN, 0, 18300);
     w.state = WinState::HOMING; w.dir = -1; w.target = 9000;
-    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 HOME >49.6   v"));
+    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 HOME >49.6   v"));
 
     w.state = WinState::CALIBRATING; w.dir = 1; w.cal.elapsed = 6350;
-    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 CAL  63.5s   ^"));
+    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 CAL  63.5s   ^"));
 
     w = idleWin(PosState::VALID, 9000, 18300);
-    Fmt::smallLine(l, w, 1, true, true); CHECK(eq(l, "1 ERR SENSOR    "));
+    Fmt::smallLine(l, w, 1, true); CHECK(eq(l, "1 ERR SENSOR    "));
 }
 
 // 큰 글씨와 가로 두 배 숫자
@@ -136,13 +135,13 @@ static void test_format_big() {
 
     char l[17];
     Fmt::WideSlots t = { { 4, 9, -1, -1 } };
-    Fmt::wideLine(l, 1, 496, t, true, ">35.5 v");
+    Fmt::wideLine(l, 1, 496, t, false, ">35.5 v");
     const char wl[17] = { '1', ' ', 8, 9, 10, 11, '.', '6', ' ', '>', '3', '5', '.', '5', ' ', 'v', 0 };
     CHECK(std::memcmp(l, wl, 16) == 0);
-    Fmt::wideLine(l, 2, 50, t, true, "CLOSE");                    // 5.0: 앞자리 비움, 5는 칸이 없어 작게
+    Fmt::wideLine(l, 2, 50, t, false, "CLOSE");                   // 5.0: 앞자리 비움, 5는 칸이 없어 작게
     CHECK(l[2] == ' ' && l[3] == ' ' && l[4] == '5' && l[6] == '.' && l[7] == '0');
-    Fmt::wideLine(l, 1, 496, t, false, nullptr);                  // 깜빡임: 값 칸이 빈다
-    CHECK(eq(l, "1               "));
+    Fmt::wideLine(l, 1, 496, t, true, nullptr);                   // 고른 창: 번호 옆에 *
+    CHECK(l[0] == '1' && l[1] == '*' && l[2] == 8 && l[7] == '6');
 }
 
 // ------------------------------------------------------------
