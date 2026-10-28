@@ -3,6 +3,8 @@
 
 // ============================================================
 //  1층: 1602 LCD (HD44780 + PCF8574 I2C 백팩, 주소 0x27 또는 0x3F).
+//  2004 LCD는 백팩의 A0 패드를 이어 주소를 0x26으로 바꿔 구분한다.
+//  지금은 2004에도 위 두 줄에 1602와 같은 16x2 글자를 그린다 (4줄 화면은 미정).
 //  화면 태스크는 setLine()으로 그림자 버퍼에 쓰고, flush()가 바뀐 글자만 보낸다.
 //  통신이 실패해도 제어에는 영향이 없다. 주기적으로 다시 초기화한다.
 //  임시: LCD가 없고 I2C OLED(SSD1306/SH1106 128x64, 0x3C/0x3D)가 있으면
@@ -20,6 +22,7 @@ public:
     void reinit();                                  // 다시 초기화하고 전부 다시 씀
     bool ok() const { return _ok; }
     bool isOled() const { return _oled; }
+    const char* kind() const;                       // "LCD1602", "LCD2004", "OLED"
     uint8_t addr() const { return _addr; }
 
 private:

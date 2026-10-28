@@ -291,7 +291,7 @@ void Ui::logLcd(const char* what) const {
         return;
     }
     Serial.printf("[lcd] %s 0x%02X %s %s, backlight %s\n", what, _lcd.addr(),
-                  _lcd.isOled() ? "OLED" : "LCD", _lcd.ok() ? "OK" : "FAIL", _backlight ? "ON" : "OFF");
+                  _lcd.kind(), _lcd.ok() ? "OK" : "FAIL", _backlight ? "ON" : "OFF");
 }
 
 bool Ui::sensorActive(uint8_t w, const Settings& s) const {
