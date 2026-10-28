@@ -6,7 +6,7 @@
 #include "app_TempControl.h"
 
 // ============================================================
-//  3층: 조정. 얼럿과 잡을 받아 창에 넘기고, 창 2개와 릴레이,
+//  3층: 조정. 얼럿과 잡을 받아 창에 넘기고, 창 2개와 MC,
 //  비상정지, 온도제어를 한 주기씩 진행한다.
 //  하드웨어를 부르지 않는다. app_ControlTask가 잰 값을 넘기고 출력을 건다.
 // ============================================================
@@ -16,7 +16,7 @@ struct ControlInputs {
     int32_t     currentMa[2];
     bool        driverFault[2];
     SensorState sensor[2];
-    int32_t     relayMv;        // 릴레이 뒤 24V 쪽 전압
+    int32_t     relayMv;        // MC 뒤 24V 쪽 전압
     int32_t     estopMv;        // 비상 버튼 뒤 24V 쪽 전압
     int32_t     tempUa;         // 온도 센서 전류 (µA)
 };
@@ -64,6 +64,7 @@ private:
     uint32_t    _tempBadSince = 0;
     bool        _tempBadPending = false;
     bool        _menu = false;
+    bool        _manual = false;     // 위치 항목을 고름 (온도제어 멈춤)
     bool        _relayFaultLogged = false;
 
     uint32_t    _eventCount = 0;

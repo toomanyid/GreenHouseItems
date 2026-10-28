@@ -7,7 +7,7 @@
 //  플래시 저장은 SettingsStore에서 한다.
 // ============================================================
 
-const uint16_t SETTINGS_VERSION = 1;
+const uint16_t SETTINGS_VERSION = 2;   // 2: 상한 리밋을 백분율로, LINK 추가 (1은 Store가 옮겨 읽음)
 
 // 범위 (내부 단위)
 const cs_t    RANGE_TIME_MIN    = 500;     // 유효 상승/하강 5.0~900.0초
@@ -42,4 +42,12 @@ namespace SettingsRules {
     // 창의 최대 위치 (ctl_Window와 같은 계산)
     cs_t sensorPoint(const WindowSettings& w);
     cs_t maxPos(const WindowSettings& w, bool sensorActive);
+
+    // 위치 ↔ 백분율 (스펙 3절). 백분율 = 1.0 + pos × 98.9 ÷ 최대 위치, 0.1 단위로 반올림.
+    // pctFromPos는 1.0~99.9를 돌려준다 (CLOSE는 부르는 쪽이 0.0으로 본다)
+    pct_t pctFromPos(cs_t pos, cs_t maxPos);
+    // 1.0~99.9 → pos = (백분율 − 1.0) × 최대 위치 ÷ 98.9
+    cs_t  posFromPct(pct_t pct, cs_t maxPos);
+    // 상한 리밋 위치. 리밋 없음이면 최대 위치
+    cs_t  limitPos(const WindowSettings& w, cs_t maxPos);
 }

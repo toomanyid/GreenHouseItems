@@ -25,7 +25,7 @@ void Dispatcher::pushEvent(uint8_t window, Cause c) {
     if (isFaultCause(c)) _temp.resetStep();
 }
 
-// 전원 켤 때: 온도 센서 2초, 릴레이 자가 점검.
+// 전원 켤 때: 온도 센서 2초, MC 자가 점검.
 // 원점 센서 유무는 창이 스스로 정한다 (ON이 들어오거나 OFF인 채로 처음 하한에 닿을 때)
 void Dispatcher::bootStep(const ControlInputs& in) {
     uint32_t elapsed = in.now - _startMs;
@@ -49,7 +49,7 @@ void Dispatcher::alert(const Alert& a, uint32_t now) {
         _temp.resetStep();
         break;
     case AlertType::CLEAR_FAULT:
-        if (_relay.fault()) break;              // 릴레이 고장은 전원을 다시 켤 때까지 남는다
+        if (_relay.fault()) break;              // MC 고장은 전원을 다시 켤 때까지 남는다
         for (uint8_t i = 0; i < 2; i++) {
             if (a.window == 0xFF || a.window == i) _w[i].clearFault(now);
         }
@@ -70,15 +70,34 @@ void Dispatcher::alert(const Alert& a, uint32_t now) {
     case AlertType::MENU_EXIT:
         _menu = false;
         break;
+    case AlertType::MODE_MANUAL:
+        _manual = true;
+        break;
+    case AlertType::MODE_AUTO:
+        _manual = false;
+        break;
     }
 }
 
 bool Dispatcher::job(const Job& j, uint32_t now) {
     (void)now;
-    if (!_bootDone || j.window > 1) return false;
+    if (!_bootDone || j.window > JOB_BOTH) return false;
     if (j.type == JobType::SETTINGS_CHANGED) return false;
     if (j.source == JobSource::ENCODER) _temp.resetStep();   // 모터에 직접 목표를 넣으면 처음 크기로
-    return _w[j.window].submit(j);
+    if (j.window != JOB_BOTH) return _w[j.window].submit(j);
+
+    // 위치 동기: 같은 주기에 두 창 모두에 넣는다. 목표가 -1이면 CLOSE
+    bool any = false;
+    for (uint8_t i = 0; i < 2; i++) {
+        if (!((j.bothMask >> i) & 1)) continue;
+        Job one = j;
+        one.window = i;
+        cs_t t = i == 0 ? j.target : j.target2;
+        if (t < 0) { one.type = JobType::CLOSE; one.target = 0; }
+        else       { one.type = JobType::MOVE;  one.target = t; }
+        if (_w[i].submit(one)) any = true;
+    }
+    return any;
 }
 
 void Dispatcher::settingsChanged(const Settings& s, uint8_t timesMask, uint8_t calMask) {
@@ -103,7 +122,7 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
     for (uint8_t i = 0; i < 2; i++) _w[i].setEstop(pressed, now);
     if (pressed) _temp.resetStep();
 
-    // 릴레이 고장이면 운전을 막는다
+    // MC 고장이면 운전을 막는다
     if (_relay.fault()) {
         for (uint8_t i = 0; i < 2; i++) _w[i].forceFault(Cause::RELAY, now);
         if (!_relayFaultLogged) { pushEvent(0, Cause::RELAY); _relayFaultLogged = true; }
@@ -122,9 +141,10 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
         wo[i] = _w[i].tick(wi);
     }
 
-    // 주 릴레이: 두 창이 모두 멈췄으면 뗀다
+    // 주 차단 MC: 두 창이 모두 멈추면 10초 뒤에 뗀다. 비상정지나 고장이면 바로 뗀다
     bool want = (wo[0].wantRelay || wo[1].wantRelay) && _relay.selfTestDone();
-    _relay.tick(now, in.relayMv, want);
+    bool holdOk = !pressed && _w[0].state() != WinState::FAULT && _w[1].state() != WinState::FAULT;
+    _relay.tick(now, in.relayMv, want, holdOk);
     out.fetA = _relay.fetA();
     out.fetB = _relay.fetB();
     for (uint8_t i = 0; i < 2; i++) {
@@ -158,14 +178,14 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
         TempControl::WinView v[2];
         for (uint8_t i = 0; i < 2; i++) {
             WinState st = _w[i].state();
-            v[i].eligible = _w[i].configured() && st != WinState::FAULT && st != WinState::ESTOP
-                         && st != WinState::CALIBRATING;
+            v[i].eligible = _s.win[i].link && _w[i].configured() && st != WinState::FAULT
+                         && st != WinState::ESTOP && st != WinState::CALIBRATING;
             v[i].posState = _w[i].posState();
             v[i].pos = _w[i].pos();
             v[i].limit = _w[i].limitPos();
         }
         Job jobs[2];
-        uint8_t n = _temp.tick(now, _tempValid, _tempValue, _menu, v, jobs);
+        uint8_t n = _temp.tick(now, _tempValid, _tempValue, _menu || _manual, v, jobs);
         for (uint8_t k = 0; k < n; k++) _w[jobs[k].window].submit(jobs[k]);
     }
     return out;
@@ -178,7 +198,8 @@ void Dispatcher::fillStatus(Status& st) const {
     st.temp.temp = _tempValue;
     st.temp.predicted = _temp.predicted();
     st.temp.slope = _temp.slope();
-    st.temp.paused = _menu;
+    st.temp.paused = _menu || _manual;
+    st.temp.manual = _manual;
     st.model = _model;
     st.bootDone = _bootDone;
     st.estop = _estop.value();

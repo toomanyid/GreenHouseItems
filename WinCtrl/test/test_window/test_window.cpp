@@ -121,9 +121,19 @@ static void test_settings_basics() {
     CHECK(SettingsRules::maxPos(s, true) == 19150);
     CHECK(SettingsRules::maxPos(s, false) == 19150);   // 센서가 죽어도 같은 자리
     CHECK(SettingsRules::validWindow(s, true));
-    s.limit = 19200;
-    CHECK(!SettingsRules::validWindow(s, true));       // 리밋이 최대 위치를 넘음
-    s.limit = 10000;
+    // 위치 ↔ 백분율 (스펙 3절): 1.0 + pos × 98.9 ÷ 최대 위치
+    CHECK(SettingsRules::pctFromPos(0, 19150) == 10);
+    CHECK(SettingsRules::pctFromPos(19150, 19150) == 999);
+    CHECK(SettingsRules::pctFromPos(25000, 19150) == 999);
+    CHECK(SettingsRules::pctFromPos(9000, 18300) == 496);      // 49.6
+    CHECK(SettingsRules::posFromPct(10, 19150) == 0);
+    CHECK(SettingsRules::posFromPct(999, 19150) == 19150);
+    CHECK(SettingsRules::pctFromPos(SettingsRules::posFromPct(496, 18300), 18300) == 496);
+    CHECK(SettingsRules::limitPos(s, 19150) == 19150);         // 99.9는 리밋 없음
+    s.limitPct = 5;
+    CHECK(!SettingsRules::validWindow(s, true));               // 1.0 아래
+    s.limitPct = 500;
+    CHECK(SettingsRules::validWindow(s, true));
     s.maxRunS = 100;                                   // 상승 190초보다 짧음
     CHECK(!SettingsRules::validWindow(s, true));
 }
@@ -252,13 +262,15 @@ static void test_close_when_unknown_and_already_closed() {
 static void test_upper_limit() {
     Sim sim;
     WindowSettings s = baseSettings();
-    s.limit = 10000;
+    s.limitPct = 526;             // 52.6 → 약 100초
+    cs_t lim = SettingsRules::posFromPct(526, SettingsRules::maxPos(s, true));
+    CHECK_NEAR(lim, 10000, 20);
     sim.p.u = 3000;
     sim.begin(s);
     sim.move(15000);              // 리밋으로 잘림
     CHECK(sim.runUntilIdle(300000));
     CHECK(sim.w.state() == WinState::LIMIT);
-    CHECK(sim.w.pos() == 10000);
+    CHECK(sim.w.pos() == lim);
     // 바깥으로 가는 목표는 움직이지 않음, 안쪽은 움직임
     sim.move(12000);
     sim.run(2000);
@@ -421,7 +433,7 @@ static void test_calibration_with_sensor() {
 static void test_calibration_refused_with_limit() {
     Sim sim;
     WindowSettings s = baseSettings();
-    s.limit = 10000;
+    s.limitPct = 526;
     sim.begin(s);
     Job j = {};
     j.type = JobType::CALIBRATE;
@@ -656,9 +668,17 @@ static void test_relay_selftest_and_engage() {
     CHECK(r.fetA() && r.fetB());
     for (int i = 0; i < 12; i++) { r.tick(t, 24000, true); t += 10; }
     CHECK(r.ready());
-    // 떼기: 0.1초 기다린 뒤
+    // 멈추면 10초 더 붙여 둔다. 그 안에 다시 구동하면 바로 준비
     r.tick(t, 24000, false); t += 10;
     CHECK(!r.ready() && r.fetA());
+    for (int i = 0; i < 500; i++) { r.tick(t, 24000, false); t += 10; }
+    CHECK(r.fetA() && r.fetB());
+    r.tick(t, 24000, true); t += 10;
+    CHECK(r.ready());
+    // 떼기: 유지 시간이 지나고 0.1초 뒤
+    uint32_t stop = t;
+    for (; t - stop < RELAY_HOLD_MS; t += 10) r.tick(t, 24000, false);
+    CHECK(r.fetA() && r.fetB());
     for (int i = 0; i < 11; i++) { r.tick(t, 20000, false); t += 10; }
     CHECK(!r.fetA() && !r.fetB());
     // 뗀 뒤 전압이 남으면 접점 붙음
@@ -672,6 +692,18 @@ static void test_relay_selftest_detects_shorted_fet() {
     uint32_t t = 0;
     for (; t < 2000; t += 10) r.tick(t, r.fetA() ? 24000 : 0, false);   // A만 켰는데 전압: B 붙음
     CHECK(r.fault());
+}
+
+static void test_relay_release_without_hold() {
+    RelayControl r;
+    r.begin(0);
+    uint32_t t = 0;
+    for (; t < 2000 && !r.selfTestDone(); t += 10) r.tick(t, 0, false);
+    for (int i = 0; i < 15; i++) { r.tick(t, (r.fetA() && r.fetB()) ? 24000 : 0, true); t += 10; }
+    CHECK(r.ready());
+    // 비상정지나 고장: 유지 시간 없이 0.1초 뒤 뗀다
+    for (int i = 0; i < 12; i++) { r.tick(t, 24000, false, false); t += 10; }
+    CHECK(!r.fetA() && !r.fetB());
 }
 
 static void test_current_monitor() {
@@ -717,6 +749,7 @@ int main() {
     RUN(test_close_on_unknown_then_target);
     RUN(test_relay_selftest_and_engage);
     RUN(test_relay_selftest_detects_shorted_fet);
+    RUN(test_relay_release_without_hold);
     RUN(test_current_monitor);
     return finish();
 }

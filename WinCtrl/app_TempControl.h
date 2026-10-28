@@ -10,7 +10,7 @@
 class TempControl {
 public:
     struct WinView {
-        bool     eligible;   // 고장, 비상정지, 측정 중이 아니고 이동 시간 설정이 있음
+        bool     eligible;   // LINK가 켜져 있고, 고장, 비상정지, 측정 중이 아니고 이동 시간 설정이 있음
         PosState posState;
         cs_t     pos;
         cs_t     limit;

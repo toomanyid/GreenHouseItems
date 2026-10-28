@@ -6,7 +6,7 @@
 // ============================================================
 cs_t Window::sensorPoint() const { return SettingsRules::sensorPoint(_s); }
 cs_t Window::maxPos() const      { return SettingsRules::maxPos(_s, sensorActive()); }
-cs_t Window::limitPos() const    { return limitEnabled() ? _s.limit : maxPos(); }
+cs_t Window::limitPos() const    { return SettingsRules::limitPos(_s, maxPos()); }
 
 uint32_t Window::maxRunMs() const {
     if (_s.maxRunS > 0) return (uint32_t)_s.maxRunS * 1000;
@@ -77,7 +77,7 @@ bool Window::submit(const Job& job) {
 
     if (job.type == JobType::CALIBRATE) {
         if (_state != WinState::IDLE && _state != WinState::LIMIT) return false;
-        if (_s.limit != CS_EMPTY) return false;                  // 리밋을 먼저 풀어야 함
+        if (_s.limitPct < PCT_MAX) return false;                 // 리밋을 먼저 풀어야 함
         if (!sensorActive() && _s.homeTime < 0) return false;    // 센서 없는 측정은 원점 시간이 필요
     } else if (job.type == JobType::MOVE || job.type == JobType::CLOSE || job.type == JobType::HOME) {
         if (!configured()) return false;
@@ -191,7 +191,7 @@ WindowOutputs Window::tick(const WindowInputs& in) {
     // 1. 지난 주기의 출력으로 위치를 쌓는다
     accumulate(dt);
 
-    // 2. 릴레이가 붙었으면 소프트 스타트를 시작한다
+    // 2. MC가 붙었으면 소프트 스타트를 시작한다
     if (_dir != 0 && _waitRelay && in.relayReady) {
         _waitRelay = false;
         _driveStartMs = now;
