@@ -64,6 +64,7 @@ private:
     uint32_t    _tempBadSince = 0;
     bool        _tempBadPending = false;
     bool        _menu = false;
+    bool        _manual = false;     // 위치 항목을 고름 (온도제어 멈춤)
     bool        _relayFaultLogged = false;
 
     uint32_t    _eventCount = 0;

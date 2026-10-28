@@ -121,9 +121,19 @@ static void test_settings_basics() {
     CHECK(SettingsRules::maxPos(s, true) == 19150);
     CHECK(SettingsRules::maxPos(s, false) == 19150);   // 센서가 죽어도 같은 자리
     CHECK(SettingsRules::validWindow(s, true));
-    s.limit = 19200;
-    CHECK(!SettingsRules::validWindow(s, true));       // 리밋이 최대 위치를 넘음
-    s.limit = 10000;
+    // 위치 ↔ 백분율 (스펙 3절): 1.0 + pos × 98.9 ÷ 최대 위치
+    CHECK(SettingsRules::pctFromPos(0, 19150) == 10);
+    CHECK(SettingsRules::pctFromPos(19150, 19150) == 999);
+    CHECK(SettingsRules::pctFromPos(25000, 19150) == 999);
+    CHECK(SettingsRules::pctFromPos(9000, 18300) == 496);      // 49.6
+    CHECK(SettingsRules::posFromPct(10, 19150) == 0);
+    CHECK(SettingsRules::posFromPct(999, 19150) == 19150);
+    CHECK(SettingsRules::pctFromPos(SettingsRules::posFromPct(496, 18300), 18300) == 496);
+    CHECK(SettingsRules::limitPos(s, 19150) == 19150);         // 99.9는 리밋 없음
+    s.limitPct = 5;
+    CHECK(!SettingsRules::validWindow(s, true));               // 1.0 아래
+    s.limitPct = 500;
+    CHECK(SettingsRules::validWindow(s, true));
     s.maxRunS = 100;                                   // 상승 190초보다 짧음
     CHECK(!SettingsRules::validWindow(s, true));
 }
@@ -252,13 +262,15 @@ static void test_close_when_unknown_and_already_closed() {
 static void test_upper_limit() {
     Sim sim;
     WindowSettings s = baseSettings();
-    s.limit = 10000;
+    s.limitPct = 526;             // 52.6 → 약 100초
+    cs_t lim = SettingsRules::posFromPct(526, SettingsRules::maxPos(s, true));
+    CHECK_NEAR(lim, 10000, 20);
     sim.p.u = 3000;
     sim.begin(s);
     sim.move(15000);              // 리밋으로 잘림
     CHECK(sim.runUntilIdle(300000));
     CHECK(sim.w.state() == WinState::LIMIT);
-    CHECK(sim.w.pos() == 10000);
+    CHECK(sim.w.pos() == lim);
     // 바깥으로 가는 목표는 움직이지 않음, 안쪽은 움직임
     sim.move(12000);
     sim.run(2000);
@@ -421,7 +433,7 @@ static void test_calibration_with_sensor() {
 static void test_calibration_refused_with_limit() {
     Sim sim;
     WindowSettings s = baseSettings();
-    s.limit = 10000;
+    s.limitPct = 526;
     sim.begin(s);
     Job j = {};
     j.type = JobType::CALIBRATE;

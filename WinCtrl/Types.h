@@ -33,11 +33,16 @@ inline bool isFaultCause(Cause c) { return c >= Cause::OVERLOAD && c <= Cause::R
 enum class JobType : uint8_t { MOVE, CLOSE, HOME, CALIBRATE, SETTINGS_CHANGED };
 enum class JobSource : uint8_t { ENCODER, TEMP_CONTROL };
 
+// 위치 동기(1+2)의 잡은 창 칸이 "양쪽"이다. 두 창 모두에 같은 주기에 넣는다 (스펙 2절)
+const uint8_t JOB_BOTH = 2;
+
 struct Job {
     JobType   type;
     JobSource source;
-    uint8_t   window;      // 0, 1. SETTINGS_CHANGED는 아래 마스크를 씀
-    cs_t      target;      // MOVE의 목표 (0.5초 단위)
+    uint8_t   window;      // 0, 1, JOB_BOTH. SETTINGS_CHANGED는 아래 마스크를 씀
+    cs_t      target;      // MOVE의 목표. JOB_BOTH면 창1의 목표 (-1 = CLOSE)
+    cs_t      target2;     // JOB_BOTH: 창2의 목표 (-1 = CLOSE)
+    uint8_t   bothMask;    // JOB_BOTH: 움직일 창 (비트 0, 1)
     uint8_t   timesMask;   // SETTINGS_CHANGED: 시간 값이 바뀐 창 (비트 0, 1)
     uint8_t   calMask;     // SETTINGS_CHANGED: 측정 결과를 저장한 창
 };
@@ -52,7 +57,9 @@ enum class AlertType : uint8_t {
     RESTORE_FAULT,    // 전원 켤 때 미확인 고장으로 시작
     SENSOR_HISTORY,   // 이 창의 원점 센서 에러 기록이 있음
     MENU_ENTER,       // 설정 메뉴 들어감 (온도제어 멈춤)
-    MENU_EXIT
+    MENU_EXIT,
+    MODE_MANUAL,      // 위치 항목을 고름: 수동, 온도제어 멈춤 (스펙 7절)
+    MODE_AUTO         // 온도 항목을 고름: 자동
 };
 
 struct Alert {
@@ -69,7 +76,7 @@ struct WindowSettings {
     cs_t     downTime;     // 유효 하강 시간
     cs_t     overlap;      // 겹침 하강 시간
     cs_t     backoff;      // 되내림 시간
-    cs_t     limit;        // 상한 리밋 (CS_EMPTY = OFF)
+    int16_t  limitPct;     // 상한 리밋, 위치 백분율 0.1 단위 (PCT_MAX = 리밋 없음)
     cs_t     homeTime;     // 원점 시간 (센서 없을 때)
     cs_t     totalUp;      // 전체 상승 시간 (측정값, 메뉴에 보이지 않음)
     int32_t  iMaxUp;       // 최대 운전 전류 mA (-1 = 비어 있음)
@@ -78,6 +85,7 @@ struct WindowSettings {
     int16_t  maxRunS;      // 최대 구동 시간 초 (-1 = 자동: 전체 상승의 1.2배)
     uint8_t  rehome;       // 재원점 기동 횟수 (0 = 끔)
     bool     homeSensAuto; // 원점 센서 사용: 자동(true) / 끔(false)
+    bool     link;         // 위치 동기와 온도제어에 참여 (LINK)
 };
 
 struct TempSettings {
@@ -135,7 +143,7 @@ struct WindowStatus {
     bool        sensorError;    // 원점 센서 에러 표시 중
     SensorState sensor;
     cs_t        maxPos;
-    cs_t        limit;          // 실제로 쓰는 상한 (리밋 OFF면 maxPos)
+    cs_t        limit;          // 실제로 쓰는 상한 위치 (리밋 OFF면 maxPos)
     int32_t     currentMa;
     int32_t     moveMaxMa;      // 마지막(또는 지금) 이동의 최대 전류 (0.3초 평균)
     int32_t     overloadUpMa;   // 과부하 기준
@@ -149,7 +157,8 @@ struct TempStatus {
     int16_t  temp;         // 현재 온도 (0.1도)
     int16_t  predicted;    // 예측 온도
     int16_t  slope;        // 변화 속도 (분당 0.01도)
-    bool     paused;       // 설정 메뉴 때문에 멈춤
+    bool     paused;       // 설정 메뉴나 수동 때문에 멈춤
+    bool     manual;       // 수동 (위치 항목을 고름)
 };
 
 // 제어 쪽에서 생긴 에러를 화면 태스크가 에러 저장에 넣도록 넘기는 고리

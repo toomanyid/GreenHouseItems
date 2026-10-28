@@ -74,7 +74,38 @@ void Lcd::reinit() {
     delay(2);
     for (uint8_t r = 0; r < ROWS; r++)
         for (uint8_t c = 0; c < COLS; c++) _shown[r][c] = 0;   // 전부 다시 쓰게
+    _glyphDirty = 0xFF;                                        // 사용자 글자도 다시
     _ok = !_txErr;
+}
+
+void Lcd::setGlyph(uint8_t slot, const uint8_t rows[8]) {
+    if (slot >= GLYPHS) return;
+    if (memcmp(_glyph[slot], rows, 8) == 0) return;
+    memcpy(_glyph[slot], rows, 8);
+    _glyphDirty |= (uint8_t)(1 << slot);
+}
+
+// 사용자 글자를 CGRAM에 쓴다. LCD는 그 글자를 쓰는 칸이 바로 바뀌고,
+// OLED는 그 글자를 쓰는 칸을 다시 그리게 한다.
+void Lcd::writeGlyphs() {
+    if (!_glyphDirty) return;
+    if (_oled) {
+        for (uint8_t r = 0; r < ROWS; r++)
+            for (uint8_t c = 0; c < COLS; c++) {
+                uint8_t ch = (uint8_t)_want[r][c];
+                if (ch >= GLYPH_CODE && ch < GLYPH_CODE + GLYPHS && ((_glyphDirty >> (ch - GLYPH_CODE)) & 1))
+                    _shown[r][c] = 0;
+            }
+        _glyphDirty = 0;
+        return;
+    }
+    for (uint8_t g = 0; g < GLYPHS; g++) {
+        if (!((_glyphDirty >> g) & 1)) continue;
+        command((uint8_t)(0x40 | (g << 3)));
+        for (uint8_t y = 0; y < 8; y++) send(_glyph[g][y], true);
+        if (_txErr) return;
+    }
+    _glyphDirty = 0;
 }
 
 void Lcd::setLine(uint8_t row, const char* text) {
@@ -87,6 +118,8 @@ void Lcd::setLine(uint8_t row, const char* text) {
 void Lcd::flush() {
     if (!_ok) return;
     _txErr = false;
+    writeGlyphs();
+    if (_txErr) { _ok = false; return; }
     if (_oled) {
         for (uint8_t r = 0; r < ROWS; r++) {
             if (memcmp(_want[r], _shown[r], COLS) == 0) continue;
@@ -158,6 +191,22 @@ void Lcd::oledInit() {
     oledCmd(_bl ? 0xAF : 0xAE);
 }
 
+// 사용자 글자(5x8)를 8x16 칸에 키워 그린다. 가로 5점을 8점에, 세로 1줄을 2줄에.
+// 0xFF는 꽉 찬 글자. half 0은 위 8줄, 1은 아래 8줄이고 바이트 하나가 세로 8점(아래 비트가 위)이다.
+void Lcd::oledGlyph(uint8_t ch, uint8_t half, uint8_t col[8]) const {
+    static const uint8_t FULL[8] = { 31, 31, 31, 31, 31, 31, 31, 31 };
+    const uint8_t* g = ch == 0xFF ? FULL : _glyph[ch - GLYPH_CODE];
+    for (uint8_t x = 0; x < 8; x++) {
+        uint8_t sx = (uint8_t)(x * 5 / 8);
+        uint8_t b = 0;
+        for (uint8_t y = 0; y < 8; y++) {
+            uint8_t sy = (uint8_t)((half * 8 + y) / 2);
+            if ((g[sy] >> (4 - sx)) & 1) b |= (uint8_t)(1 << y);
+        }
+        col[x] = b;
+    }
+}
+
 // 글자 줄 하나 = 8x16 글자 16개 = 페이지 2개. 0번 줄은 1~2페이지, 1번 줄은 4~5페이지.
 void Lcd::oledRow(uint8_t row) {
     uint8_t page0 = row == 0 ? 1 : 4;
@@ -168,6 +217,12 @@ void Lcd::oledRow(uint8_t row) {
             Wire.write(0x40);                         // 데이터
             for (uint8_t k = 0; k < 2; k++) {
                 uint8_t ch = (uint8_t)_want[row][c + k];
+                if ((ch >= GLYPH_CODE && ch < GLYPH_CODE + GLYPHS) || ch == 0xFF) {
+                    uint8_t g[8];
+                    oledGlyph(ch, half, g);
+                    for (uint8_t x = 0; x < 8; x++) Wire.write(g[x]);
+                    continue;
+                }
                 if (ch < 32 || ch > 126) ch = '?';
                 const uint8_t* g = OLED_FONT_8X16[ch - 32] + half * 8;
                 for (uint8_t x = 0; x < 8; x++) Wire.write(g[x]);

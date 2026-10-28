@@ -15,4 +15,7 @@ namespace Store {
     void     loadErrors(ErrorLog& log);
     bool     saveErrors(const ErrorLog& log);
     uint16_t bumpBootCount();        // 1 늘려 저장하고 돌려준다
+    // 마지막으로 고른 조작 항목 (스펙 7절, 8절). 없으면 dflt
+    uint8_t  loadUiItem(uint8_t dflt);
+    bool     saveUiItem(uint8_t item);
 }
