@@ -107,7 +107,7 @@ private:
     uint32_t maxRunMs() const;
     int32_t  overloadMa(int8_t dir) const;
     int32_t  fixedLimitMa() const { return _model == Model::W300 ? FIXED_LIMIT_MA_300W : FIXED_LIMIT_MA_50W; }
-    bool     limitEnabled() const { return _s.limit >= 0 && _s.limit < maxPos(); }
+    bool     limitEnabled() const { return _s.limitPct < PCT_MAX && limitPos() < maxPos(); }
     cs_t     runCs() const        { return (cs_t)(_runRaw / 1000); }
 
     uint8_t        _index = 0;

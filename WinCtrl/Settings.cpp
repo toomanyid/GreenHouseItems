@@ -7,7 +7,7 @@ void defaultsWindow(WindowSettings& w) {
     w.downTime     = CS_EMPTY;
     w.overlap      = CS_EMPTY;
     w.backoff      = 150;        // 1.5초
-    w.limit        = CS_EMPTY;   // 리밋 없음
+    w.limitPct     = PCT_MAX;    // 99.9 = 리밋 없음
     w.homeTime     = CS_EMPTY;
     w.totalUp      = CS_EMPTY;
     w.iMaxUp       = -1;
@@ -16,6 +16,7 @@ void defaultsWindow(WindowSettings& w) {
     w.maxRunS      = -1;         // 전체 상승 시간의 1.2배
     w.rehome       = 20;
     w.homeSensAuto = true;
+    w.link         = true;
 }
 
 void defaultsTemp(TempSettings& t) {
@@ -60,6 +61,7 @@ cs_t maxPos(const WindowSettings& w, bool sensorActive) {
 }
 
 bool validWindow(const WindowSettings& w, bool sensorActive) {
+    (void)sensorActive;   // 리밋이 백분율이라 최대 위치를 넘을 수 없다
     if (!inRangeOrEmpty(w.upTime, RANGE_TIME_MIN, RANGE_TIME_MAX)) return false;
     if (!inRangeOrEmpty(w.downTime, RANGE_TIME_MIN, RANGE_TIME_MAX)) return false;
     if (!inRangeOrEmpty(w.overlap, 0, RANGE_OVERLAP_MAX)) return false;
@@ -71,10 +73,7 @@ bool validWindow(const WindowSettings& w, bool sensorActive) {
     if (w.maxRunS != -1 && (w.maxRunS < RANGE_MAXRUN_MIN || w.maxRunS > RANGE_MAXRUN_MAX)) return false;
     if (w.rehome > RANGE_REHOME_MAX) return false;
 
-    if (w.limit != CS_EMPTY) {
-        if (w.limit < 0 || w.upTime < 0) return false;
-        if (w.limit > maxPos(w, sensorActive)) return false;
-    }
+    if (w.limitPct < PCT_MIN || w.limitPct > PCT_MAX) return false;
     if (w.maxRunS != -1 && w.upTime >= 0 && (cs_t)w.maxRunS * 100 < w.upTime) return false;
     return true;
 }
@@ -109,6 +108,24 @@ bool calInRange(const CalStatus& c) {
     if (c.iMaxUp < RANGE_IMAX_MIN || c.iMaxUp > RANGE_IMAX_MAX) return false;
     if (c.iMaxDn < RANGE_IMAX_MIN || c.iMaxDn > RANGE_IMAX_MAX) return false;
     return true;
+}
+
+pct_t pctFromPos(cs_t pos, cs_t maxPos) {
+    if (maxPos <= 0 || pos <= 0) return PCT_MIN;
+    int64_t p = PCT_MIN + ((int64_t)pos * (PCT_MAX - PCT_MIN) * 2 + maxPos) / (2 * (int64_t)maxPos);
+    if (p > PCT_MAX) p = PCT_MAX;
+    return (pct_t)p;
+}
+
+cs_t posFromPct(pct_t pct, cs_t maxPos) {
+    if (pct <= PCT_MIN || maxPos <= 0) return 0;
+    if (pct >= PCT_MAX) return maxPos;
+    return (cs_t)(((int64_t)(pct - PCT_MIN) * maxPos * 2 + (PCT_MAX - PCT_MIN)) / (2 * (PCT_MAX - PCT_MIN)));
+}
+
+cs_t limitPos(const WindowSettings& w, cs_t maxPos) {
+    if (w.limitPct >= PCT_MAX) return maxPos;
+    return posFromPct(w.limitPct, maxPos);
 }
 
 void recomputeHomeTime(WindowSettings& w) {

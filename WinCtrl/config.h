@@ -15,7 +15,16 @@ const uint8_t  FW_VERSION_MINOR = 9;
 // ============================================================
 typedef int32_t cs_t;
 const cs_t     CS_EMPTY = -1;               // 설정값이 비어 있음
-const cs_t     CS_STEP  = 50;               // 목표와 직접 입력값의 단위 (0.5초)
+const cs_t     CS_STEP  = 50;               // 직접 입력하는 시간 설정값의 단위 (0.5초)
+
+// 화면 표시와 위치 입력은 위치 백분율, 0.1 = 1 (스펙 3절).
+//   0.0 = CLOSE, 1.0 = 0.0초, 99.9 = 최대 위치. 100은 쓰지 않는다.
+typedef int16_t pct_t;
+const pct_t    PCT_CLOSE = 0;
+const pct_t    PCT_MIN   = 10;               // 1.0
+const pct_t    PCT_MAX   = 999;              // 99.9. 상한 리밋 설정에서는 "리밋 없음"
+const pct_t    PCT_STEP  = 5;                // 엔코더 한 칸 0.5
+const pct_t    PCT_UNKNOWN = -1;             // 위치 모름
 
 // ============================================================
 //  제어 주기와 구동
@@ -78,13 +87,16 @@ const uint32_t ESTOP_DEBOUNCE_MS     = 30;
 const uint32_t INPUT_COMMIT_MS       = 2000;  // 입력 확정 시간
 const uint32_t LONG_PRESS_MS         = 3000;
 const uint32_t SPLASH_MS             = 3000;
-const uint32_t BLINK_MS              = 500;
-const uint32_t ALT_TEXT_MS           = 1000;  // 상태 문구와 초 표시를 번갈아 보이는 간격
-const uint32_t BACKLIGHT_OFF_MS      = 300000;
+const uint32_t SYNC_RETURN_MS        = 5000;  // 개별 항목에서 위치 동기로 돌아가는 시간
+const uint32_t BLINK_MS              = 500;   // 값을 바꾸는 중, 상태 글자: 0.5초 켜짐, 0.5초 꺼짐
+const uint32_t BLINK_SEL_MS          = 1000;  // 평소 화면에서 고른 값: 이 주기에서
+const uint32_t BLINK_SEL_ON_MS       = 800;   //   0.8초 켜짐, 0.2초 꺼짐
+const uint32_t BACKLIGHT_OFF_MS      = 300000; // 조작 없이 5분
+const uint32_t BACKLIGHT_ALARM_MS    = 1000;  // 고장, 에러, 비상정지: 1초 켜짐, 1초 꺼짐
 const uint32_t MENU_TIMEOUT_MS       = 120000; // 설정 메뉴 자동 나가기
 const uint32_t ENC_VALID_WINDOW_MS   = 500;   // 이 안에 같은 방향 두 칸이어야 입력으로 받음
-const uint32_t ENC_FAST_MS           = 80;    // 칸 사이가 이보다 짧으면 5초 단위 (임시)
-const uint32_t ENC_FASTER_MS         = 40;    // 이보다 짧으면 10초 단위 (임시)
+const uint32_t ENC_FAST_MS           = 80;    // 칸 사이가 이보다 짧으면 위치 5씩 (임시)
+const uint32_t ENC_FASTER_MS         = 40;    // 이보다 짧으면 10씩 (임시)
 const uint8_t  ENC_EDGES_PER_DETENT  = 4;     // PEC16-4220F-S0024: 한 칸에 4번 바뀜
 const int8_t   ENC_DIRECTION         = -1;    // 시계 방향이 +가 되게. 반대로 돌면 1로 바꾼다 (S1/S2 모듈로 맞춤, PEC16 오면 다시 확인)
 const uint32_t LCD_REINIT_MS         = 60000; // 화면을 주기적으로 다시 초기화

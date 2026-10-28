@@ -70,15 +70,34 @@ void Dispatcher::alert(const Alert& a, uint32_t now) {
     case AlertType::MENU_EXIT:
         _menu = false;
         break;
+    case AlertType::MODE_MANUAL:
+        _manual = true;
+        break;
+    case AlertType::MODE_AUTO:
+        _manual = false;
+        break;
     }
 }
 
 bool Dispatcher::job(const Job& j, uint32_t now) {
     (void)now;
-    if (!_bootDone || j.window > 1) return false;
+    if (!_bootDone || j.window > JOB_BOTH) return false;
     if (j.type == JobType::SETTINGS_CHANGED) return false;
     if (j.source == JobSource::ENCODER) _temp.resetStep();   // 모터에 직접 목표를 넣으면 처음 크기로
-    return _w[j.window].submit(j);
+    if (j.window != JOB_BOTH) return _w[j.window].submit(j);
+
+    // 위치 동기: 같은 주기에 두 창 모두에 넣는다. 목표가 -1이면 CLOSE
+    bool any = false;
+    for (uint8_t i = 0; i < 2; i++) {
+        if (!((j.bothMask >> i) & 1)) continue;
+        Job one = j;
+        one.window = i;
+        cs_t t = i == 0 ? j.target : j.target2;
+        if (t < 0) { one.type = JobType::CLOSE; one.target = 0; }
+        else       { one.type = JobType::MOVE;  one.target = t; }
+        if (_w[i].submit(one)) any = true;
+    }
+    return any;
 }
 
 void Dispatcher::settingsChanged(const Settings& s, uint8_t timesMask, uint8_t calMask) {
@@ -159,14 +178,14 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
         TempControl::WinView v[2];
         for (uint8_t i = 0; i < 2; i++) {
             WinState st = _w[i].state();
-            v[i].eligible = _w[i].configured() && st != WinState::FAULT && st != WinState::ESTOP
-                         && st != WinState::CALIBRATING;
+            v[i].eligible = _s.win[i].link && _w[i].configured() && st != WinState::FAULT
+                         && st != WinState::ESTOP && st != WinState::CALIBRATING;
             v[i].posState = _w[i].posState();
             v[i].pos = _w[i].pos();
             v[i].limit = _w[i].limitPos();
         }
         Job jobs[2];
-        uint8_t n = _temp.tick(now, _tempValid, _tempValue, _menu, v, jobs);
+        uint8_t n = _temp.tick(now, _tempValid, _tempValue, _menu || _manual, v, jobs);
         for (uint8_t k = 0; k < n; k++) _w[jobs[k].window].submit(jobs[k]);
     }
     return out;
@@ -179,7 +198,8 @@ void Dispatcher::fillStatus(Status& st) const {
     st.temp.temp = _tempValue;
     st.temp.predicted = _temp.predicted();
     st.temp.slope = _temp.slope();
-    st.temp.paused = _menu;
+    st.temp.paused = _menu || _manual;
+    st.temp.manual = _manual;
     st.model = _model;
     st.bootDone = _bootDone;
     st.estop = _estop.value();

@@ -1,6 +1,7 @@
 #include "io_Format.h"
 #include <stdio.h>
 #include <string.h>
+#include "Settings.h"
 
 namespace Fmt {
 
@@ -34,27 +35,6 @@ void secs2(char* out, cs_t v) {
     snprintf(out, 12, "%ld.%02ld", (long)(v / 100), (long)(v % 100));
 }
 
-void secsInt(char* out, cs_t v, uint8_t width) {
-    char b[12];
-    if (v < 0) { pad(out, width, "---"); return; }
-    snprintf(b, sizeof(b), "%ld", (long)((v + 50) / 100));
-    pad(out, width, b);
-}
-
-uint8_t pctValue(cs_t pos, cs_t maxPos) {
-    if (maxPos <= 0) return 1;
-    if (pos < 0) pos = 0;
-    int32_t p = 1 + (int32_t)((int64_t)pos * 99 / maxPos);
-    if (p > 100) p = 100;
-    return (uint8_t)p;
-}
-
-void pct(char* out, cs_t pos, cs_t maxPos) {
-    char b[8];
-    snprintf(b, sizeof(b), "%u", (unsigned)pctValue(pos, maxPos));
-    pad(out, 3, b);
-}
-
 void amps(char* out, int32_t ma) {
     if (ma < 0) { strcpy(out, "-.-A"); return; }
     int32_t d = (ma + 50) / 100;
@@ -67,6 +47,14 @@ void temp4(char* out, int16_t t) {
     if (t > 999) t = 999;
     int a = t < 0 ? -t : t;
     snprintf(b, sizeof(b), "%s%d.%d", t < 0 ? "-" : "", a / 10, a % 10);
+    pad(out, 4, b);
+}
+
+void pct4(char* out, pct_t p) {
+    char b[8];
+    if (p < 0) { strcpy(out, "--.-"); return; }
+    if (p > PCT_MAX) p = PCT_MAX;
+    snprintf(b, sizeof(b), "%d.%d", p / 10, p % 10);
     pad(out, 4, b);
 }
 
@@ -88,22 +76,6 @@ const char* faultLong(Cause c) {
     case Cause::TEMP_LOST:   return "ERR TEMP LOST";
     case Cause::TEMP_BAD:    return "ERR TEMP BAD";
     default:                 return "ERR";
-    }
-}
-
-const char* faultShort(Cause c) {
-    switch (c) {
-    case Cause::OVERLOAD:    return "E-OVL";
-    case Cause::NO_CURRENT:  return "E-NOC";
-    case Cause::LIMIT_HIT:   return "E-LIM";
-    case Cause::DRIVER:      return "E-DRV";
-    case Cause::TIMEOUT:     return "E-TMO";
-    case Cause::SENSOR:      return "E-SEN";
-    case Cause::RELAY:       return "E-RLY";
-    case Cause::HOME_SENSOR: return "E-SEN";
-    case Cause::TEMP_LOST:   return "E-TMP";
-    case Cause::TEMP_BAD:    return "E-TMP";
-    default:                 return "E-???";
     }
 }
 
@@ -150,102 +122,177 @@ char statusChar(const WindowStatus& w, bool blinkOn) {
     }
 }
 
-// 위치 칸: 초 5칸 + 's' + 빈칸 + 백분율 3칸 + '%' (3번 칸부터)
-static void posField(char* line, PosState ps, cs_t pos, cs_t maxPos) {
-    char b[12];
-    if (ps == PosState::UNKNOWN) { put(line, 3, "---.-s ---%"); return; }
-    if (ps == PosState::CLOSED)  { put(line, 3, " CLOSE   0%"); return; }
-    secs(b, pos, 5); put(line, 3, b); put(line, 8, "s");
-    pct(b, pos, maxPos); put(line, 10, b); put(line, 13, "%");
+pct_t winPct(const WindowStatus& w) {
+    if (w.posState == PosState::CLOSED) return PCT_CLOSE;
+    if (w.posState == PosState::UNKNOWN) return PCT_UNKNOWN;
+    return SettingsRules::pctFromPos(w.pos, w.maxPos);
 }
 
-void winLine(char* out, const WindowStatus& w, const LineCtx& c) {
-    char b[16];
+pct_t targetPct(const WindowStatus& w) {
+    if (w.target < 0) return PCT_CLOSE;
+    return SettingsRules::pctFromPos(w.target, w.maxPos);
+}
+
+void smallLine(char* out, const WindowStatus& w, uint8_t num, bool blinkOn, bool sensorErr) {
+    char b[12];
     blank(out, 16);
-    out[0] = c.sel;
-    out[1] = (char)('0' + c.num);
+    out[0] = (char)('0' + num);
+    out[15] = statusChar(w, blinkOn);
 
-    if (c.editing) {
-        if (c.editTarget < 0) posField(out, PosState::CLOSED, 0, w.maxPos);
-        else                  posField(out, PosState::VALID, c.editTarget, w.maxPos);
-        return;
-    }
-    out[15] = statusChar(w, c.blinkOn);
-
-    if (w.state == WinState::FAULT) { put(out, 3, faultLong(w.fault)); return; }
-    if (c.sensorErr && c.altPhase) { put(out, 3, "ERR SENSOR"); return; }
+    if (w.state == WinState::FAULT) { put(out, 2, faultLong(w.fault)); return; }
+    if (sensorErr) { put(out, 2, "ERR SENSOR"); return; }
 
     switch (w.state) {
     case WinState::HOMING:
-        put(out, 3, "HOME");
+        put(out, 2, "HOME");
+        out[7] = '>';
+        if (w.target < 0) put(out, 8, "CLOSE");
+        else { pct4(b, targetPct(w)); put(out, 8, b); }
         return;
     case WinState::CALIBRATING:
-        put(out, 3, "CAL");
-        secs(b, w.cal.elapsed, 5); put(out, 7, b); put(out, 12, "s");
-        return;
-    case WinState::MOVING:
-    case WinState::CLOSING:
-    case WinState::REVERSE_WAIT:
-        if (w.posState != PosState::UNKNOWN) {
-            if (w.posState == PosState::CLOSED) put(out, 3, "CLOSE");
-            else { secs(b, w.pos, 5); put(out, 3, b); }
-            out[8] = '>';
-            if (w.target < 0) put(out, 9, "CLOSE");
-            else { secs(b, w.target, 5); put(out, 9, b); }
-            return;
-        }
-        posField(out, w.posState, w.pos, w.maxPos);
+        put(out, 2, "CAL");
+        secs(b, w.cal.elapsed, 5); put(out, 6, b); put(out, 11, "s");
         return;
     default:
-        posField(out, w.posState, w.pos, w.maxPos);
-        return;
+        break;
+    }
+    pct_t p = winPct(w);
+    if (p == PCT_CLOSE) put(out, 2, "CLOSE");
+    else { pct4(b, p); put(out, 2, b); }
+    bool moving = w.state == WinState::MOVING || w.state == WinState::CLOSING || w.state == WinState::REVERSE_WAIT;
+    if (moving && p != PCT_UNKNOWN) {
+        uint8_t col = p == PCT_CLOSE ? 7 : 6;
+        out[col] = '>';
+        if (w.target < 0) put(out, (uint8_t)(col + 1), "CLOSE");
+        else { pct4(b, targetPct(w)); put(out, (uint8_t)(col + 1), b); }
     }
 }
 
-// 오른쪽 8칸: 선택, 번호, 초 4칸 + 's' + 상태 글자, 또는 3번 칸부터 문구 5칸
-void winShort(char* out, const WindowStatus& w, const LineCtx& c) {
-    char b[12];
-    blank(out, 8);
-    out[0] = c.sel;
-    out[1] = (char)('0' + c.num);
+// ------------------------------------------------------------
+//  큰 글씨
+// ------------------------------------------------------------
+const uint8_t BIG_GLYPHS[BIG_GLYPH_COUNT][8] = {
+    { 31, 31, 31, 0, 0, 0, 0, 0 },        // 위 막대
+    { 0, 0, 0, 0, 0, 31, 31, 31 },        // 아래 막대
+    { 31, 31, 31, 0, 0, 31, 31, 31 },     // 위아래 막대
+    { 0, 0, 0, 0, 0, 0, 14, 14 },         // 소수점
+    { 2, 2, 31, 4, 31, 8, 8, 0 },         // ≠
+};
 
-    if (c.editing) {
-        if (c.editTarget < 0) { memcpy(out + 3, "CLOSE", 5); return; }
-        secsInt(b, c.editTarget, 4); memcpy(out + 2, b, 4); out[6] = 's';
-        return;
+// 숫자마다 윗줄 3칸, 아랫줄 3칸. F 꽉 참, T 위 막대, B 아래 막대, U 위아래 막대
+static const char* const BIG_DIGITS[10][2] = {
+    { "FTF", "FBF" }, { "TF ", "BFB" }, { "UUF", "FBB" }, { "UUF", "BBF" }, { "FBF", "  F" },
+    { "FUU", "BBF" }, { "FUU", "FBF" }, { "TTF", "  F" }, { "FUF", "FBF" }, { "FUF", "BBF" },
+};
+static const char* const BIG_DASH[2] = { "BBB", "   " };
+
+static char bigCode(char k) {
+    switch (k) {
+    case 'F': return G_FULL;
+    case 'T': return G_TOP;
+    case 'B': return G_BOT;
+    case 'U': return G_BOTH;
+    default:  return ' ';
     }
-
-    const char* phrase = nullptr;
-    bool alternate = true;
-    cs_t shown = w.posState == PosState::VALID ? w.pos : CS_EMPTY;
-
-    if (w.state == WinState::FAULT)            phrase = faultShort(w.fault);
-    else if (c.sensorErr)                      phrase = "E-SEN";
-    else if (w.state == WinState::HOMING)      phrase = "HOME";
-    else if (w.state == WinState::CALIBRATING) { phrase = "CAL"; shown = w.cal.elapsed; }
-
-    if (w.posState == PosState::CLOSED && w.state != WinState::FAULT && !(c.sensorErr && c.altPhase)
-        && w.state != WinState::CALIBRATING && w.state != WinState::HOMING) {
-        memcpy(out + 3, "CLOSE", 5);           // CLOSE는 위치 자체라 번갈지 않음
-        return;
-    }
-    if (phrase && (c.altPhase || !alternate)) {
-        size_t n = strlen(phrase);
-        memcpy(out + 3, phrase, n > 5 ? 5 : n);
-        return;
-    }
-    secsInt(b, shown, 4); memcpy(out + 2, b, 4); out[6] = 's';
-    out[7] = statusChar(w, c.blinkOn);
 }
 
-void tempLine(char* out, char sel, bool valid, int16_t t, char suffix, const char* right8) {
-    char b[8];
+static void bigDigit(char* row0, char* row1, uint8_t col, const char* const g[2]) {
+    for (uint8_t k = 0; k < 3; k++) {
+        row0[col + k] = bigCode(g[0][k]);
+        row1[col + k] = bigCode(g[1][k]);
+    }
+}
+
+void bigNumber(char* row0, char* row1, int16_t tenths) {
+    for (uint8_t c = 0; c < 11; c++) { row0[c] = ' '; row1[c] = ' '; }
+    row1[7] = G_DOT;
+    if (tenths < 0) {
+        bigDigit(row0, row1, 0, BIG_DASH);
+        bigDigit(row0, row1, 4, BIG_DASH);
+        bigDigit(row0, row1, 8, BIG_DASH);
+        return;
+    }
+    if (tenths > 999) tenths = 999;
+    uint8_t tens = (uint8_t)(tenths / 100), ones = (uint8_t)(tenths / 10 % 10), dec = (uint8_t)(tenths % 10);
+    if (tens) bigDigit(row0, row1, 0, BIG_DIGITS[tens]);     // 10 아래는 앞자리를 비운다
+    bigDigit(row0, row1, 4, BIG_DIGITS[ones]);
+    bigDigit(row0, row1, 8, BIG_DIGITS[dec]);
+}
+
+// ------------------------------------------------------------
+//  가로 두 배 숫자
+// ------------------------------------------------------------
+// 7획: a 위, b 오른쪽 위, c 오른쪽 아래, d 아래, e 왼쪽 아래, f 왼쪽 위, g 가운데
+static const uint8_t SEGS[10] = {
+    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F,   // 비트 0 = a ... 비트 6 = g
+};
+
+void wideHalf(uint8_t digit, uint8_t side, uint8_t out[8]) {
+    uint16_t g[8] = {};      // 10점, 비트 9가 맨 왼쪽
+    uint8_t s = SEGS[digit % 10];
+    auto set = [&](uint8_t y0, uint8_t y1, uint8_t x0, uint8_t x1) {
+        for (uint8_t y = y0; y <= y1; y++)
+            for (uint8_t x = x0; x <= x1; x++) g[y] |= (uint16_t)(1u << (9 - x));
+    };
+    if (s & 0x01) set(0, 0, 1, 9);   // a
+    if (s & 0x40) set(3, 3, 1, 9);   // g
+    if (s & 0x08) set(6, 6, 1, 9);   // d
+    if (s & 0x20) set(0, 3, 1, 2);   // f
+    if (s & 0x10) set(3, 6, 1, 2);   // e
+    if (s & 0x02) set(0, 3, 8, 9);   // b
+    if (s & 0x04) set(3, 6, 8, 9);   // c
+    for (uint8_t y = 0; y < 8; y++)
+        out[y] = (uint8_t)(side == 0 ? (g[y] >> 5) & 0x1F : g[y] & 0x1F);
+}
+
+void wideAssign(WideSlots& s, const bool need[10]) {
+    bool used[4] = { false, false, false, false };
+    bool placed[10] = {};
+    for (uint8_t p = 0; p < 4; p++) {
+        int8_t d = s.digit[p];
+        if (d >= 0 && d <= 9 && need[d] && !placed[d]) { used[p] = true; placed[d] = true; }
+        else s.digit[p] = -1;
+    }
+    for (uint8_t d = 0; d < 10; d++) {
+        if (!need[d] || placed[d]) continue;
+        for (uint8_t p = 0; p < 4; p++) {
+            if (used[p]) continue;
+            s.digit[p] = (int8_t)d;
+            used[p] = true;
+            placed[d] = true;
+            break;
+        }
+    }
+}
+
+void wideNeed(bool need[10], pct_t p) {
+    if (p < 0) return;
+    if (p > PCT_MAX) p = PCT_MAX;
+    if (p >= 100) need[p / 100] = true;
+    need[p / 10 % 10] = true;
+}
+
+static void wideDigit(char* out, uint8_t col, uint8_t d, const WideSlots& s) {
+    for (uint8_t q = 0; q < 4; q++) {
+        if (s.digit[q] != (int8_t)d) continue;
+        out[col] = (char)(G_TOP + 2 * q);
+        out[col + 1] = (char)(G_TOP + 2 * q + 1);
+        return;
+    }
+    out[col] = (char)('0' + d);      // 칸이 모자라면 작은 숫자로 (그럴 일은 없다)
+}
+
+void wideLine(char* out, uint8_t num, pct_t p, const WideSlots& s, bool showValue, const char* extra) {
     blank(out, 16);
-    out[0] = sel;
-    if (valid) { temp4(b, t); memcpy(out + 1, b, 4); }
-    else       memcpy(out + 1, "--.-", 4);
-    out[5] = suffix;
-    memcpy(out + 8, right8, 8);
+    out[0] = (char)('0' + num);
+    if (extra) put(out, 9, extra);
+    if (!showValue) return;
+    if (p < 0) { put(out, 4, "--.-"); return; }
+    if (p > PCT_MAX) p = PCT_MAX;
+    if (p >= 100) wideDigit(out, 2, (uint8_t)(p / 100), s);
+    wideDigit(out, 4, (uint8_t)(p / 10 % 10), s);
+    out[6] = '.';
+    out[7] = (char)('0' + p % 10);
 }
 
 }  // namespace Fmt

@@ -25,12 +25,6 @@ static WindowStatus idleWin(PosState ps, cs_t pos, cs_t maxPos) {
     return w;
 }
 
-static Fmt::LineCtx ctx(uint8_t num, char sel) {
-    Fmt::LineCtx c = {};
-    c.num = num; c.sel = sel; c.blinkOn = true;
-    return c;
-}
-
 // ------------------------------------------------------------
 static void test_format_values() {
     char b[24];
@@ -39,10 +33,10 @@ static void test_format_values() {
     Fmt::secs(b, 4500, 5);  CHECK(eq(b, " 45.0"));
     Fmt::secs(b, CS_EMPTY, 5); CHECK(eq(b, "---.-"));
     Fmt::secs2(b, 16352); CHECK(eq(b, "163.52"));
-    Fmt::secsInt(b, 18250, 4); CHECK(eq(b, " 183"));     // 0.5는 올림
-    Fmt::secsInt(b, 18249, 4); CHECK(eq(b, " 182"));
-    Fmt::pct(b, 0, 18000); CHECK(eq(b, "  1"));
-    Fmt::pct(b, 18000, 18000); CHECK(eq(b, "100"));
+    Fmt::pct4(b, 496); CHECK(eq(b, "49.6"));
+    Fmt::pct4(b, 5);   CHECK(eq(b, " 0.5"));
+    Fmt::pct4(b, 999); CHECK(eq(b, "99.9"));
+    Fmt::pct4(b, PCT_UNKNOWN); CHECK(eq(b, "--.-"));
     Fmt::amps(b, 2140); CHECK(eq(b, "2.1A"));
     Fmt::temp4(b, 255); CHECK(eq(b, "25.5"));
     Fmt::temp4(b, 50);  CHECK(eq(b, " 5.0"));
@@ -50,74 +44,104 @@ static void test_format_values() {
     Fmt::temp4(b, 1234); CHECK(eq(b, "99.9"));
     Fmt::buildDate(b, "Oct  9 2026", "19:47:12"); CHECK(eq(b, "2026-10-09 19:47"));
     Fmt::splashTop(b, "WIN CTRL", 0, 9); CHECK(eq(b, "WIN CTRL   00.09"));
+
+    // 위치는 백분율로만 (스펙 3절): 0.0 CLOSE, 1.0 = 0.0초, 99.9 = 최대 위치
+    CHECK(Fmt::winPct(idleWin(PosState::VALID, 0, 18300)) == 10);
+    CHECK(Fmt::winPct(idleWin(PosState::VALID, 9000, 18300)) == 496);
+    CHECK(Fmt::winPct(idleWin(PosState::VALID, 18300, 18300)) == 999);
+    CHECK(Fmt::winPct(idleWin(PosState::CLOSED, 0, 18300)) == PCT_CLOSE);
+    CHECK(Fmt::winPct(idleWin(PosState::UNKNOWN, 0, 18300)) == PCT_UNKNOWN);
 }
 
-static void test_format_lines() {
+// 작은 글씨 화면 (스펙 7절)
+static void test_format_small() {
     char l[24];
-    WindowStatus w = idleWin(PosState::VALID, 18250, 18250);
-    Fmt::winLine(l, w, ctx(1, '>')); CHECK(eq(l, ">1 182.5s 100%  "));
-    w = idleWin(PosState::VALID, 4500, 18000);
-    Fmt::winLine(l, w, ctx(2, ' ')); CHECK(eq(l, " 2  45.0s  25%  "));
+    WindowStatus w = idleWin(PosState::VALID, 9000, 18300);
+    Fmt::smallLine(l, w, 2, true, false); CHECK(eq(l, "2 49.6          "));
     w = idleWin(PosState::CLOSED, 0, 18000);
-    Fmt::winLine(l, w, ctx(1, '>')); CHECK(eq(l, ">1  CLOSE   0%  "));
+    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 CLOSE         "));
     w = idleWin(PosState::UNKNOWN, 0, 18000);
-    Fmt::winLine(l, w, ctx(1, '>')); CHECK(eq(l, ">1 ---.-s ---% ?"));
+    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 --.-         ?"));
 
-    w = idleWin(PosState::VALID, 4500, 18000);
-    w.state = WinState::MOVING; w.dir = 1; w.target = 12000;
-    Fmt::winLine(l, w, ctx(1, '>')); CHECK(eq(l, ">1  45.0>120.0 ^"));
-    Fmt::LineCtx c = ctx(1, '>'); c.blinkOn = false;
-    Fmt::winLine(l, w, c); CHECK(eq(l, ">1  45.0>120.0  "));
+    w = idleWin(PosState::VALID, 9000, 18300);
+    w.state = WinState::MOVING; w.dir = 1; w.target = 18300;
+    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 49.6>99.9    ^"));
+    Fmt::smallLine(l, w, 1, false, false); CHECK(eq(l, "1 49.6>99.9     "));
+    w.target = -1; w.dir = -1;
+    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 49.6>CLOSE   v"));
 
     w.state = WinState::REVERSE_WAIT; w.dir = 0; w.nextDir = -1;
-    c.blinkOn = false;
-    Fmt::winLine(l, w, c); CHECK(l[15] == 'v');             // 전환 정지 중에는 켜 둔다
+    Fmt::smallLine(l, w, 1, false, false); CHECK(l[15] == 'v');   // 전환 정지 중에는 켜 둔다
 
-    w = idleWin(PosState::VALID, 12000, 18000);
+    w = idleWin(PosState::VALID, 18300, 18300);
     w.state = WinState::LIMIT;
-    Fmt::winLine(l, w, ctx(1, '>')); CHECK(eq(l, ">1 120.0s  67% L"));
+    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 99.9         L"));
 
     w.state = WinState::FAULT; w.fault = Cause::OVERLOAD;
-    Fmt::winLine(l, w, ctx(1, '>')); CHECK(eq(l, ">1 ERR OVERLOAD!"));
+    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 ERR OVERLOAD !"));
 
-    w = idleWin(PosState::UNKNOWN, 0, 18000);
-    w.state = WinState::HOMING; w.dir = -1;
-    Fmt::winLine(l, w, ctx(1, '>')); CHECK(eq(l, ">1 HOME        v"));
+    w = idleWin(PosState::UNKNOWN, 0, 18300);
+    w.state = WinState::HOMING; w.dir = -1; w.target = 9000;
+    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 HOME >49.6   v"));
 
     w.state = WinState::CALIBRATING; w.dir = 1; w.cal.elapsed = 6350;
-    Fmt::winLine(l, w, ctx(1, '>')); CHECK(eq(l, ">1 CAL  63.5s  ^"));
+    Fmt::smallLine(l, w, 1, true, false); CHECK(eq(l, "1 CAL  63.5s   ^"));
 
-    w = idleWin(PosState::VALID, 4500, 18000);
-    c = ctx(1, '*'); c.editing = true; c.editTarget = 6000;
-    Fmt::winLine(l, w, c); CHECK(eq(l, "*1  60.0s  34%  "));
-    c.editTarget = -1;
-    Fmt::winLine(l, w, c); CHECK(eq(l, "*1  CLOSE   0%  "));
-
-    // 원점 센서 에러: 1초마다 번갈아
-    c = ctx(1, '>'); c.sensorErr = true; c.altPhase = true;
-    Fmt::winLine(l, w, c); CHECK(eq(l, ">1 ERR SENSOR   "));
+    w = idleWin(PosState::VALID, 9000, 18300);
+    Fmt::smallLine(l, w, 1, true, true); CHECK(eq(l, "1 ERR SENSOR    "));
 }
 
-static void test_format_temp_screen() {
-    char r[12], l[24];
-    WindowStatus w = idleWin(PosState::VALID, 18250, 18250);
-    Fmt::winShort(r, w, ctx(1, '>')); CHECK(eq(r, ">1 183s "));
-    Fmt::tempLine(l, ' ', true, 255, 'C', r); CHECK(eq(l, " 25.5C  >1 183s "));
-    w = idleWin(PosState::VALID, 4500, 18000);
-    Fmt::winShort(r, w, ctx(2, ' '));
-    Fmt::tempLine(l, '>', true, 280, 'S', r); CHECK(eq(l, ">28.0S   2  45s "));
-    Fmt::tempLine(l, ' ', false, 0, 'C', r); CHECK(eq(l, " --.-C   2  45s "));
+// 큰 글씨와 가로 두 배 숫자
+static void test_format_big() {
+    char r0[17], r1[17];
+    std::memset(r0, ' ', 16); std::memset(r1, ' ', 16); r0[16] = r1[16] = 0;
+    Fmt::bigNumber(r0, r1, 280);
+    // 2: UUF / FBB, 8: FUF / FBF, 소수점, 0: FTF / FBF
+    const char want0[12] = { Fmt::G_BOTH, Fmt::G_BOTH, Fmt::G_FULL, ' ', Fmt::G_FULL, Fmt::G_BOTH, Fmt::G_FULL, ' ',
+                             Fmt::G_FULL, Fmt::G_TOP, Fmt::G_FULL, 0 };
+    const char want1[12] = { Fmt::G_FULL, Fmt::G_BOT, Fmt::G_BOT, ' ', Fmt::G_FULL, Fmt::G_BOT, Fmt::G_FULL, Fmt::G_DOT,
+                             Fmt::G_FULL, Fmt::G_BOT, Fmt::G_FULL, 0 };
+    CHECK(std::memcmp(r0, want0, 11) == 0);
+    CHECK(std::memcmp(r1, want1, 11) == 0);
+    CHECK(r0[11] == ' ');                                       // 오른쪽 5칸은 건드리지 않음
+    Fmt::bigNumber(r0, r1, 55);                                 // 10 아래는 앞자리를 비운다
+    CHECK(r0[0] == ' ' && r0[1] == ' ' && r0[2] == ' ' && r1[0] == ' ');
+    Fmt::bigNumber(r0, r1, PCT_UNKNOWN);
+    CHECK(r0[0] == Fmt::G_BOT && r1[0] == ' ');
 
-    w = idleWin(PosState::VALID, 18250, 18250);
-    w.state = WinState::FAULT; w.fault = Cause::OVERLOAD;
-    Fmt::LineCtx c = ctx(1, '>');
-    c.altPhase = false; Fmt::winShort(r, w, c); CHECK(eq(r, ">1 183s!"));
-    c.altPhase = true;  Fmt::winShort(r, w, c); CHECK(eq(r, ">1 E-OVL"));
+    // 가로 두 배 숫자: 9x7 점, 맨 왼쪽 줄과 맨 아래 줄은 빈다
+    for (uint8_t d = 0; d < 10; d++) {
+        uint8_t L[8], R[8];
+        Fmt::wideHalf(d, 0, L); Fmt::wideHalf(d, 1, R);
+        bool ok = L[7] == 0 && R[7] == 0;
+        for (uint8_t y = 0; y < 8; y++) if (L[y] & 0x10) ok = false;
+        CHECK(ok);
+    }
+    uint8_t L[8], R[8];
+    Fmt::wideHalf(8, 0, L); Fmt::wideHalf(8, 1, R);
+    CHECK(L[0] == 0x0F && R[0] == 0x1F);                        // 가로획 1점 (윗줄 9점)
+    CHECK(L[1] == 0x0C && R[1] == 0x03);                        // 세로획 2점
 
-    w = idleWin(PosState::CLOSED, 0, 18000);
-    c.altPhase = true; Fmt::winShort(r, w, c); CHECK(eq(r, ">1 CLOSE"));
-    w = idleWin(PosState::UNKNOWN, 0, 18000);
-    c.altPhase = false; Fmt::winShort(r, w, c); CHECK(eq(r, ">1 ---s?"));
+    // 숫자 칸 나누기: 이미 있는 숫자는 그 칸에 둔다
+    Fmt::WideSlots s = { { -1, -1, -1, -1 } };
+    bool need[10] = {};
+    Fmt::wideNeed(need, 496); Fmt::wideNeed(need, 999);
+    Fmt::wideAssign(s, need);
+    CHECK(s.digit[0] == 4 && s.digit[1] == 9 && s.digit[2] == -1);
+    bool need2[10] = {};
+    Fmt::wideNeed(need2, 355); Fmt::wideNeed(need2, 999);
+    Fmt::wideAssign(s, need2);
+    CHECK(s.digit[1] == 9 && (s.digit[0] == 3 || s.digit[2] == 3) && (s.digit[0] == 5 || s.digit[2] == 5));
+
+    char l[17];
+    Fmt::WideSlots t = { { 4, 9, -1, -1 } };
+    Fmt::wideLine(l, 1, 496, t, true, ">35.5 v");
+    const char wl[17] = { '1', ' ', 8, 9, 10, 11, '.', '6', ' ', '>', '3', '5', '.', '5', ' ', 'v', 0 };
+    CHECK(std::memcmp(l, wl, 16) == 0);
+    Fmt::wideLine(l, 2, 50, t, true, "CLOSE");                    // 5.0: 앞자리 비움, 5는 칸이 없어 작게
+    CHECK(l[2] == ' ' && l[3] == ' ' && l[4] == '5' && l[6] == '.' && l[7] == '0');
+    Fmt::wideLine(l, 1, 496, t, false, nullptr);                  // 깜빡임: 값 칸이 빈다
+    CHECK(eq(l, "1               "));
 }
 
 // ------------------------------------------------------------
@@ -366,15 +390,66 @@ static void test_dispatcher_temp_lost() {
     CHECK(status.temp.valid);
 }
 
+// 위치 동기 잡(양쪽), LINK, 수동과 자동 (스펙 7절, 9절)
+static void test_dispatcher_sync_and_modes() {
+    DSim s;
+    Settings st = baseSettings();
+    st.win[1].link = false;                                  // 창2는 온도제어에서 빠짐
+    s.tempUa = 12000;                                         // 25.0도, 설정 28.0도라 온도제어는 닫으려 함
+    s.d.begin(Model::W50, st, 0);
+    Alert man = { AlertType::MODE_MANUAL, 0xFF, Cause::NONE };
+    s.d.alert(man, s.now);
+    s.run(2100);
+    CHECK(s.d.bootDone());
+
+    Job j = {};
+    j.type = JobType::MOVE; j.source = JobSource::ENCODER; j.window = JOB_BOTH;
+    j.bothMask = 3; j.target = 5000; j.target2 = 8000;
+    CHECK(s.d.job(j, s.now));
+    s.step();
+    Status status;
+    s.d.fillStatus(status);
+    CHECK(isMovingState(status.win[0].state) && isMovingState(status.win[1].state));   // 같은 주기에 둘 다
+    s.run(150000);
+    s.d.fillStatus(status);
+    CHECK_NEAR(status.win[0].pos, 5000, 5);
+    CHECK_NEAR(status.win[1].pos, 8000, 5);
+    CHECK(status.temp.manual && status.temp.paused);
+    s.run(70000);                                             // 수동이라 온도제어가 움직이지 않음
+    s.d.fillStatus(status);
+    CHECK_NEAR(status.win[0].pos, 5000, 5);
+
+    // 양쪽 잡의 -1은 CLOSE, 마스크에 없는 창은 그대로
+    j.bothMask = 1; j.target = -1; j.target2 = 0;
+    CHECK(s.d.job(j, s.now));
+    s.run(80000);
+    s.d.fillStatus(status);
+    CHECK(status.win[0].posState == PosState::CLOSED);
+    CHECK_NEAR(status.win[1].pos, 8000, 5);
+
+    // 자동: LINK가 켜진 창만 움직인다 (창1은 닫혀 있어 그대로, 창2는 LINK 꺼짐)
+    j.bothMask = 1; j.target = 5000;
+    CHECK(s.d.job(j, s.now));
+    s.run(60000);
+    Alert aut = { AlertType::MODE_AUTO, 0xFF, Cause::NONE };
+    s.d.alert(aut, s.now);
+    s.run(130000);
+    s.d.fillStatus(status);
+    CHECK(!status.temp.manual);
+    CHECK(status.win[0].pos < 5000 || status.win[0].posState == PosState::CLOSED);
+    CHECK_NEAR(status.win[1].pos, 8000, 5);
+}
+
 int main() {
     RUN(test_format_values);
-    RUN(test_format_lines);
-    RUN(test_format_temp_screen);
+    RUN(test_format_small);
+    RUN(test_format_big);
     RUN(test_error_log);
     RUN(test_sensor_filter);
     RUN(test_temp_control);
     RUN(test_dispatcher_boot_and_move);
     RUN(test_dispatcher_estop_and_relay);
     RUN(test_dispatcher_temp_lost);
+    RUN(test_dispatcher_sync_and_modes);
     return finish();
 }
