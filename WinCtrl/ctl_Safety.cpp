@@ -69,11 +69,6 @@ void RelayControl::begin(uint32_t now) {
 
 void RelayControl::tick(uint32_t now, int32_t relayMv, bool wantOn) {
     if (_fault) return;
-#ifdef WINCTRL_BENCH
-    // 책상 시험 빌드에서만: 24V가 없으므로 릴레이 뒤 전압을 읽지 않고
-    // 정상 릴레이처럼 FET A, B가 둘 다 켜졌을 때만 전압이 있다고 본다.
-    relayMv = (_fetA && _fetB) ? RELAY_ON_MV : 0;
-#endif
     uint32_t inPhase = now - _phaseMs;
 
     switch (_phase) {

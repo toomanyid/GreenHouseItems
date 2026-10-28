@@ -4,8 +4,8 @@
 set -e
 cd "$(dirname "$0")/.."
 CXX=${CXX:-g++}
-# 두 번째는 UI 시험 빌드 (-DWINCTRL_UISIM)
-for def in "" "-DWINCTRL_UISIM"; do
+# 기본 빌드, 책상 시험 빌드, UI 시험 빌드
+for def in "" "-DWINCTRL_BENCH" "-DWINCTRL_UISIM"; do
   for f in *.cpp; do
     $CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-truncation -fsyntax-only -Itest/stubs -I. $def "$f"
   done
