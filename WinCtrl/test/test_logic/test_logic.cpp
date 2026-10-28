@@ -95,19 +95,25 @@ static void test_format_small() {
 static void test_format_big() {
     char r0[17], r1[17];
     std::memset(r0, ' ', 16); std::memset(r1, ' ', 16); r0[16] = r1[16] = 0;
-    Fmt::bigNumber(r0, r1, 280);
-    // 2: " UR" / "LB ", 8: "LUR" / "LBR", 소수점, 0: "LTR" / "LBR" (U 위아래, T 위, B 아래 가로획)
-    const char want0[11] = { ' ', Fmt::G_BOTH, Fmt::G_VR, Fmt::G_VL, Fmt::G_BOTH, Fmt::G_VR, ' ',
-                             Fmt::G_VL, Fmt::G_TOP, Fmt::G_VR, 0 };
-    const char want1[11] = { Fmt::G_VL, Fmt::G_BOT, ' ', Fmt::G_VL, Fmt::G_BOT, Fmt::G_VR, Fmt::G_DOT,
-                             Fmt::G_VL, Fmt::G_BOT, Fmt::G_VR, 0 };
-    CHECK(std::memcmp(r0, want0, 10) == 0);
-    CHECK(std::memcmp(r1, want1, 10) == 0);
-    CHECK(r0[10] == ' ');                                       // 오른쪽 6칸은 건드리지 않음
+    int8_t dec = Fmt::bigNumber(r0, r1, 287);
+    // 2: " UR" / "LB ", 8: "LUR" / "LBR" (U 위아래, B 아래 가로획), 아랫줄 소수점과 소수 자리 반쪽 둘
+    const char want0[10] = { ' ', Fmt::G_BOTH, Fmt::G_VR, Fmt::G_VL, Fmt::G_BOTH, Fmt::G_VR, ' ', ' ', ' ', 0 };
+    const char want1[10] = { Fmt::G_VL, Fmt::G_BOT, ' ', Fmt::G_VL, Fmt::G_BOT, Fmt::G_VR, Fmt::G_DOT,
+                             Fmt::G_DEC, (char)(Fmt::G_DEC + 1), 0 };
+    CHECK(dec == 7);
+    CHECK(std::memcmp(r0, want0, 9) == 0);
+    CHECK(std::memcmp(r1, want1, 9) == 0);
+    CHECK(r0[10] == ' ' && r1[10] == ' ');                      // 오른쪽은 건드리지 않음
+    // 소수 자리는 가로 두 배 숫자를 한 줄 내린 것
+    uint8_t D[8], W[8];
+    Fmt::bigDecHalf(7, 0, D); Fmt::wideHalf(7, 0, W);
+    CHECK(D[0] == 0 && std::memcmp(D + 1, W, 7) == 0);
     Fmt::bigNumber(r0, r1, 55);                                 // 10 아래는 앞자리를 비운다
     CHECK(r0[0] == ' ' && r0[1] == ' ' && r0[2] == ' ' && r1[0] == ' ');
-    Fmt::bigNumber(r0, r1, PCT_UNKNOWN);
+    CHECK(Fmt::bigNumber(r0, r1, PCT_UNKNOWN) == -1);
     CHECK(r0[1] == Fmt::G_BOT && r0[0] == ' ' && r1[1] == ' ');
+    Fmt::bigDecHalf(-1, 0, D);                                  // 모름: 소수 자리도 가운데 획만
+    CHECK(D[4] == 0x0F && D[1] == 0 && D[7] == 0);
 
     // 가로 두 배 숫자: 9x7 점, 맨 왼쪽 줄과 맨 아래 줄은 빈다
     for (uint8_t d = 0; d < 10; d++) {

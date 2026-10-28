@@ -41,22 +41,28 @@ char statusChar(const WindowStatus& w, bool blinkOn);
 void smallLine(char* out, const WindowStatus& w, uint8_t num, bool blinkOn, bool sensorErr);
 
 // ------------------------------------------------------------
-//  큰 글씨 (온도, 위치 동기). 숫자 하나는 가로 3칸 세로 2줄인 7획 글씨다.
+//  큰 글씨 (온도, 위치 동기). 정수 두 자리는 가로 3칸 세로 2줄인 7획 글씨다.
 //  세로획은 양옆 칸에 3점, 가로획은 가운데 칸에만 2줄로 그려 칸 사이 틈이 획 사이에 온다.
-//  숫자 사이 빈칸 없이 왼쪽 10칸(숫자 0~2칸, 3~5칸, 소수점 6칸, 숫자 7~9칸)을 쓴다.
+//  숫자 0~2칸, 3~5칸, 아랫줄 6칸 소수점, 아랫줄 7~8칸 소수 자리(가로 두 배, 한 줄 내림).
+//  사용자 글자 0~5번은 고정 획, 6~7번은 소수 자리 숫자의 반쪽이다.
 // ------------------------------------------------------------
-const uint8_t BIG_GLYPH_COUNT = 7;
-extern const uint8_t BIG_GLYPHS[BIG_GLYPH_COUNT][8];   // 왼쪽 세로획, 오른쪽 세로획, 위 가로획, 아래 가로획, 위아래 가로획, 소수점, ≠
+const uint8_t BIG_GLYPH_COUNT = 6;
+extern const uint8_t BIG_GLYPHS[BIG_GLYPH_COUNT][8];   // 왼쪽 세로획, 오른쪽 세로획, 위 가로획, 아래 가로획, 위아래 가로획, 소수점
 const char G_VL   = 8;           // 사용자 글자 0번. 숫자 왼쪽 칸의 세로획 (칸의 오른쪽 3점)
 const char G_VR   = 9;           // 숫자 오른쪽 칸의 세로획 (칸의 왼쪽 3점)
 const char G_TOP  = 10;          // 위 가로획 (위 2줄)
 const char G_BOT  = 11;          // 아래 가로획 (아래 2줄). 윗줄에서는 가운데 획, 아랫줄에서는 아래 획
 const char G_BOTH = 12;
 const char G_DOT  = 13;
-const char G_NE   = 14;          // ≠
+const char G_DEC  = 14;          // 소수 자리 왼쪽 반쪽. 오른쪽 반쪽은 G_DEC + 1
+const uint8_t BIG_DEC_SLOT = 6;  // G_DEC의 사용자 글자 번호
+const char G_DIFF = '*';         // 위치 동기에서 두 창 위치가 다름 (사용자 글자가 모자라 ROM 글자)
 
-// row0, row1의 0~9칸에 0.1 단위 값을 큰 숫자로 쓴다. 0~99.9, 음수면 "--.-"
-void bigNumber(char* row0, char* row1, int16_t tenths);
+// row0의 0~5칸, row1의 0~8칸에 0.1 단위 값을 큰 숫자로 쓴다. 0~99.9, 음수면 "--.-".
+// 소수 자리 숫자를 돌려준다(음수면 -1, 가운데 획). 그 반쪽은 bigDecHalf로 만들어 6, 7번에 넣는다
+int8_t bigNumber(char* row0, char* row1, int16_t tenths);
+// 소수 자리 숫자의 반쪽. 가로 두 배 숫자를 한 줄 내려 큰 숫자와 바닥을 맞춘다. digit -1은 가운데 획
+void bigDecHalf(int8_t digit, uint8_t side, uint8_t out[8]);
 
 // ------------------------------------------------------------
 //  가로 두 배 숫자 (개별 화면). 숫자 하나 = 글자 두 칸 = 사용자 글자 두 개.

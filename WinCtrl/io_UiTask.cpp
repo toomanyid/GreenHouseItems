@@ -129,6 +129,7 @@ private:
     void drawMain(uint32_t now);
     void drawSmall(uint32_t now);
     void drawBig(uint32_t now);
+    void bigDecimal(int8_t digit);
     void drawWide(uint32_t now);
     void useGlyphs(Glyphs g);
     bool hasTemp() const { return _st.temp.found; }
@@ -778,7 +779,7 @@ void Ui::mainTick(uint32_t now) {
     }
 }
 
-// 사용자 글자를 화면에 맞게 넣는다. 큰 글씨는 획 7개, 개별 화면은 숫자 반쪽 8개
+// 사용자 글자를 화면에 맞게 넣는다. 큰 글씨는 획 6개와 소수 자리 반쪽 2개, 개별 화면은 숫자 반쪽 8개
 void Ui::useGlyphs(Glyphs g) {
     if (g == Glyphs::BIG) {
         for (uint8_t i = 0; i < Fmt::BIG_GLYPH_COUNT; i++) _lcd.setGlyph(i, Fmt::BIG_GLYPHS[i]);
@@ -806,6 +807,13 @@ void Ui::drawSmall(uint32_t now) {
     }
 }
 
+// 큰 글씨의 소수 자리 숫자 반쪽을 사용자 글자 6, 7번에 넣는다 (바뀐 것만 보낸다)
+void Ui::bigDecimal(int8_t digit) {
+    uint8_t g[8];
+    Fmt::bigDecHalf(digit, 0, g); _lcd.setGlyph(Fmt::BIG_DEC_SLOT, g);
+    Fmt::bigDecHalf(digit, 1, g); _lcd.setGlyph(Fmt::BIG_DEC_SLOT + 1, g);
+}
+
 void Ui::drawBig(uint32_t now) {
     useGlyphs(Glyphs::BIG);
     bool st = blinkEdit(now);                 // 상태 글자 0.5초
@@ -824,11 +832,11 @@ void Ui::drawBig(uint32_t now) {
 
     if (_item == Item::TEMP) {
         bool show = _editTemp ? blinkEdit(now) : blinkSel(now);
-        if (show) Fmt::bigNumber(r0, r1, _editTemp ? _editSetT : _s.temp.setT);
+        if (show) bigDecimal(Fmt::bigNumber(r0, r1, _editTemp ? _editSetT : _s.temp.setT));
         if (moving) { r1[12] = '1'; r1[13] = s1; r1[14] = '2'; r1[15] = s2; }
         else memcpy(r1 + 13, "SET", 3);
     } else {
-        // 위치 동기: 낮은 쪽 창의 값. 두 창이 다르면 ≠
+        // 위치 동기: 낮은 쪽 창의 값. 두 창이 다르면 *
         uint8_t mask = _editPos ? _editMask : syncMask();
         if (!mask) mask = 3;
         pct_t v[2];
@@ -844,15 +852,15 @@ void Ui::drawBig(uint32_t now) {
         bool differ = mask == 3 && v[0] != v[1];
         // 움직이는 중에는 현재 위치라 깜빡이지 않는다
         bool show = _editPos ? blinkEdit(now) : (moving ? true : blinkSel(now));
-        if (show) Fmt::bigNumber(r0, r1, low);
+        if (show) bigDecimal(Fmt::bigNumber(r0, r1, low));
         if (hasTemp()) {
             memcpy(r1 + 11, "MAN", 3);
             if (moving) { r1[14] = s1; r1[15] = s2; }
-            else if (differ) r1[14] = Fmt::G_NE;
+            else if (differ) r1[14] = Fmt::G_DIFF;
         } else {
             memcpy(r0 + 13, "1+2", 3);
             if (moving) { r1[14] = s1; r1[15] = s2; }
-            else if (differ) r1[15] = Fmt::G_NE;
+            else if (differ) r1[15] = Fmt::G_DIFF;
         }
     }
     _lcd.setLine(0, r0);
