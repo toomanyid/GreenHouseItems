@@ -1,2 +1,5 @@
 # 맥 Finder가 폴더마다 만드는 파일
 .DS_Store
+
+# 파이썬 캐시
+__pycache__/
