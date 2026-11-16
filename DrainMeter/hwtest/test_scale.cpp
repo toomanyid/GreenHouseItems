@@ -8,16 +8,17 @@
 //    c1 1000    1라인 저울에 1000g을 올려 놓고 보정 → 1g당 읽음값을 찍는다
 //    c2 1000    2라인 저울 보정
 //    z          쉬기/깨기 시험 (쉬는 동안 읽기를 멈춘다)
-//  보정해서 나온 값은 config.h의 SCALE1_COUNTS_PER_G, SCALE2_COUNTS_PER_G에 적는다.
+//    x          저장된 영점과 보정값 지우기
+//  영점과 보정값은 보드에 저장돼 전원을 꺼도 남는다 (io_Calib). test_live와 같은 값을 쓴다.
+//  저장된 영점이 있으면 켤 때 영점을 다시 잡지 않는다. 없으면 켤 때 잡아서 저장한다.
 // ============================================================
 #include <Arduino.h>
 #include "pins.h"
 #include "config.h"
 #include "dev_Scale.h"
+#include "io_Calib.h"
 
-static int32_t offsetA = 0, offsetB = 0;
-static float perGA = SCALE1_COUNTS_PER_G;
-static float perGB = SCALE2_COUNTS_PER_G;
+static ScaleCalib cal;
 
 static const uint8_t HIST = 10;
 static float histA[HIST], histB[HIST];
@@ -40,10 +41,12 @@ static void tare() {
         Serial.println("[tare] 실패: HX711이 응답하지 않음");
         return;
     }
-    offsetA = r.a;
-    offsetB = r.b;
+    cal.offset[0] = r.a;
+    cal.offset[1] = r.b;
+    cal.hasOffset = true;
+    calibSaveOffset(cal);
     histN = histI = 0;
-    Serial.printf("[tare] 영점 A=%ld B=%ld\n", (long)offsetA, (long)offsetB);
+    Serial.printf("[tare] 영점 A=%ld B=%ld (저장함)\n", (long)r.a, (long)r.b);
 }
 
 static void calibrate(uint8_t which, float grams) {
@@ -56,13 +59,19 @@ static void calibrate(uint8_t which, float grams) {
         Serial.println("[cal] 실패: HX711이 응답하지 않음");
         return;
     }
-    int32_t net = (which == 1) ? (r.a - offsetA) : (r.b - offsetB);
+    uint8_t i = which - 1;
+    int32_t net = ((which == 1) ? r.a : r.b) - cal.offset[i];
     float perG = net / grams;
-    if (which == 1) perGA = perG; else perGB = perG;
+    if (perG > -0.001f && perG < 0.001f) {
+        Serial.println("[cal] 실패: 무게를 올렸는데 읽음값이 거의 그대로입니다. 저장하지 않았습니다.");
+        return;
+    }
+    cal.perG[i] = perG;
+    cal.hasPerG[i] = true;
+    calibSavePerG(cal, i);
     histN = histI = 0;
-    Serial.printf("[cal] %d라인: %.0fg에 %ld → 1g당 %.3f\n", which, grams, (long)net, perG);
-    Serial.printf("      config.h: SCALE%d_COUNTS_PER_G = %.3ff;\n", which, perG);
-    if (perG < 0) Serial.println("      값이 음수입니다. 해당 HX711의 A+와 A-를 바꿔 연결하세요.");
+    Serial.printf("[cal] %d라인: %.0fg에 %ld → 1g당 %.3f (저장함)\n", which, grams, (long)net, perG);
+    if (perG < 0) Serial.println("      값이 음수입니다. 무게는 맞게 나오지만, A+와 A-를 바꿔 연결하면 양수가 됩니다.");
 }
 
 static void handleCommand(String line) {
@@ -87,8 +96,13 @@ static void handleCommand(String line) {
             sleeping = true;
             Serial.println("[sleep] 쉬는 중. 다시 z를 누르면 깨어남");
         }
+    } else if (c == 'x') {
+        calibClear();
+        calibLoad(cal);
+        histN = histI = 0;
+        Serial.println("[cal] 저장값을 지웠습니다. 영점은 t, 보정은 c1/c2로 다시 하세요.");
     } else {
-        Serial.println("명령: t, c1 <g>, c2 <g>, z");
+        Serial.println("명령: t, c1 <g>, c2 <g>, z, x");
     }
 }
 
@@ -96,10 +110,17 @@ void setup() {
     Serial.begin(115200);
     delay(1500);
     Serial.printf("\n[test_scale] %s\n", DRAINMETER_VERSION);
-    Serial.println("명령: t(영점), c1 <g>, c2 <g>(보정), z(쉬기/깨기)");
+    Serial.println("명령: t(영점), c1 <g>, c2 <g>(보정), z(쉬기/깨기), x(저장값 지우기)");
+    calibLoad(cal);
+    Serial.printf("[cal] 저장된 영점: %s  A=%ld B=%ld\n", cal.hasOffset ? "있음" : "없음",
+                  (long)cal.offset[0], (long)cal.offset[1]);
+    for (uint8_t i = 0; i < 2; i++) {
+        Serial.printf("[cal] %d라인 1g당 %.3f (%s)\n", i + 1, cal.perG[i],
+                      cal.hasPerG[i] ? "저장값" : "보정 전");
+    }
     scaleBegin();
     scaleWake();
-    tare();
+    if (!cal.hasOffset) tare();
 }
 
 void loop() {
@@ -124,8 +145,8 @@ void loop() {
                       digitalRead(PIN_HX1_DOUT), digitalRead(PIN_HX2_DOUT));
         return;
     }
-    float gA = (r.a - offsetA) / perGA;
-    float gB = (r.b - offsetB) / perGB;
+    float gA = (r.a - cal.offset[0]) / cal.perG[0];
+    float gB = (r.b - cal.offset[1]) / cal.perG[1];
     histA[histI] = gA;
     histB[histI] = gB;
     histI = (histI + 1) % HIST;

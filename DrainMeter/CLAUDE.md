@@ -24,7 +24,7 @@ Seeed XIAO ESP32C6 한 대로 고설 딸기 베드 2라인의 배액을 무게�
 ## 확인 방법
 
 ```
-pio run -e drainmeter -e test_scale -e test_rtc -e test_epd
+pio run -e drainmeter -e test_scale -e test_rtc -e test_epd -e test_live
 ```
 
-코드를 고치면 네 환경이 모두 빌드되게 둔다. 실제 확인은 보드 업로드로 한다.
+코드를 고치면 다섯 환경이 모두 빌드되게 둔다. 실제 확인은 보드 업로드로 한다.

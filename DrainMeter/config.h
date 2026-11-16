@@ -8,7 +8,8 @@
 #define DRAINMETER_VERSION "0.9-dev"
 
 // ---- 로드셀 ----
-// 저울 값 1g당 HX711 읽음값. test_scale의 보정 명령으로 구한다. [실물 확인]
+// 저울 값 1g당 HX711 읽음값. 보정 명령(c1, c2)으로 구한 값은 보드에 저장되고(io_Calib),
+// 이 값은 저장값이 없을 때만 쓴다.
 const float SCALE1_COUNTS_PER_G = 1.0f;
 const float SCALE2_COUNTS_PER_G = 1.0f;
 // HX711이 깨어난 뒤 값이 안정될 때까지 버리는 시간 (10회/초 설정 기준 약 400ms)
