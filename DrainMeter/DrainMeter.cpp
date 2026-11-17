@@ -13,6 +13,7 @@
 
 void setup() {
     Serial.begin(115200);
+    Serial.setTxTimeoutMs(0);   // 시리얼 모니터를 안 열어도 기다리지 않게 (안 그러면 한 줄에 0.1초씩 멈춘다)
     delay(1500);   // USB 시리얼이 붙을 시간
     Serial.printf("\n[drainmeter] version %s\n", DRAINMETER_VERSION);
 

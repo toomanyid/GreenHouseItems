@@ -108,6 +108,7 @@ static void handleCommand(String line) {
 
 void setup() {
     Serial.begin(115200);
+    Serial.setTxTimeoutMs(0);   // 시리얼 모니터를 안 열어도 기다리지 않게 (안 그러면 한 줄에 0.1초씩 멈춘다)
     delay(1500);
     Serial.printf("\n[test_scale] %s\n", DRAINMETER_VERSION);
     Serial.println("명령: t(영점), c1 <g>, c2 <g>(보정), z(쉬기/깨기), x(저장값 지우기)");

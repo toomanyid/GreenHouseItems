@@ -2,7 +2,8 @@
 //  부품 시험: 저울 + 전자잉크 (지금 무게를 화면에 보이기)
 //  pio run -e test_live -t upload, 그다음 pio device monitor
 //
-//  1초마다 두 저울의 무게(kg)를 화면에 부분 갱신으로 그린다.
+//  1초마다 두 저울의 무게(kg)와 RTC 시각을 화면에 부분 갱신으로 그린다.
+//  시각은 test_rtc의 set 명령으로 맞춘다.
 //  부분 갱신을 거듭하면 그대로 있는 글자가 조금씩 옅어진다 (이 패널의 부분 갱신 방식).
 //  그래서 60번(1분)마다 한 번은 전체 갱신해 진하게 되돌린다.
 //  시리얼 명령 (끝에 엔터):
@@ -18,6 +19,8 @@
 // ============================================================
 #include <Arduino.h>
 #include <SPI.h>
+#include <Wire.h>
+#include <RTClib.h>
 #include <GxEPD2_BW.h>
 #include <U8g2_for_Adafruit_GFX.h>
 #include "pins.h"
@@ -32,6 +35,9 @@ static uint16_t fullEvery = 60;             // 이만큼 갱신하면 한 번은
 static GxEPD2_BW<EPD_DRIVER, EPD_DRIVER::HEIGHT> display(
     EPD_DRIVER(PIN_EPD_CS, PIN_EPD_DC, PIN_EPD_RST, PIN_EPD_BUSY));
 static U8G2_FOR_ADAFRUIT_GFX u8g2Fonts;
+
+static RTC_DS3231 rtc;
+static bool rtcOk = false;
 
 static ScaleCalib cal;
 static uint32_t updates = 0;
@@ -170,9 +176,22 @@ static void drawScreen(bool ok, float kgA, float kgB) {
 
     setText(u8g2_font_unifont_t_korean2);
     char buf[40];
-    snprintf(buf, sizeof(buf), "갱신 %lu  %.1f초  전원 %s", (unsigned long)updates,
-             updateMs / 1000.0f, powerOffAfter ? "off" : "on");
+    // 아래 줄 왼쪽: 시각
+    if (!rtcOk) {
+        snprintf(buf, sizeof(buf), "시계 없음");
+    } else if (rtc.lostPower()) {
+        snprintf(buf, sizeof(buf), "시각 안 맞춤");
+    } else {
+        DateTime now = rtc.now();
+        snprintf(buf, sizeof(buf), "%02d-%02d %02d:%02d:%02d", now.month(), now.day(),
+                 now.hour(), now.minute(), now.second());
+    }
     textAt(4, 122, buf);
+
+    // 아래 줄 오른쪽: 갱신 횟수, 간격, 패널 전원
+    snprintf(buf, sizeof(buf), "갱신 %lu %.1f초 %s", (unsigned long)updates,
+             updateMs / 1000.0f, powerOffAfter ? "off" : "on");
+    textAt(display.width() - 4 - u8g2Fonts.getUTF8Width(buf), 122, buf);
 }
 
 static void showWeights() {
@@ -206,6 +225,7 @@ static void showWeights() {
 
 void setup() {
     Serial.begin(115200);
+    Serial.setTxTimeoutMs(0);   // 시리얼 모니터를 안 열어도 기다리지 않게 (안 그러면 한 줄에 0.1초씩 멈춘다)
     delay(1500);
     Serial.printf("\n[test_live] %s\n", DRAINMETER_VERSION);
     Serial.println("명령: t(영점), c1 <g>, c2 <g>(보정), x(저장값 지우기), f <n>(전체 갱신 간격), i <ms>(갱신 간격), p(패널 전원)");
@@ -215,6 +235,16 @@ void setup() {
     display.init(115200, true, 2, false);
     display.setRotation(1);   // 가로로 놓고 쓴다 (296x128)
     u8g2Fonts.begin(display);
+
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+    rtcOk = rtc.begin(&Wire);
+    if (rtcOk) {
+        rtc.disable32K();
+        rtc.writeSqwPinMode(DS3231_OFF);
+        if (rtc.lostPower()) Serial.println("[rtc] 시각이 지워져 있습니다. test_rtc의 set 명령으로 맞춰 주세요.");
+    } else {
+        Serial.println("[rtc] DS3231을 찾지 못했습니다. 화면에 시각 없이 보입니다.");
+    }
 
     calibLoad(cal);
     Serial.printf("[cal] 저장된 영점: %s  A=%ld B=%ld\n", cal.hasOffset ? "있음" : "없음",
