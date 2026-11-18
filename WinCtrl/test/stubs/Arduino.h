@@ -3,12 +3,14 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 #define IRAM_ATTR
 #define HIGH 1
 #define LOW 0
 #define INPUT 0x01
 #define OUTPUT 0x03
 #define INPUT_PULLUP 0x05
+#define INPUT_PULLDOWN 0x09
 #define CHANGE 3
 #ifndef ESP_ARDUINO_VERSION_MAJOR
 #define ESP_ARDUINO_VERSION_MAJOR 3
@@ -21,6 +23,8 @@ struct HardwareSerial {
     void begin(unsigned long) {}
     int printf(const char*, ...) __attribute__((format(printf, 2, 3))) { return 0; }
     size_t println(const char*) { return 0; }
+    int available() { return 0; }
+    int read() { return -1; }
 };
 static HardwareSerial Serial;
 inline void pinMode(uint8_t, uint8_t) {}
@@ -36,6 +40,7 @@ inline bool ledcWrite(uint8_t, uint32_t) { return true; }
 inline uint32_t ledcWriteTone(uint8_t, uint32_t) { return 0; }
 inline int digitalPinToInterrupt(uint8_t p) { return p; }
 inline void attachInterrupt(int, void (*)(), int) {}
+inline void detachInterrupt(int) {}
 inline int64_t esp_timer_get_time() { return 0; }
 typedef struct { int x; } portMUX_TYPE;
 #define portMUX_INITIALIZER_UNLOCKED {0}

@@ -11,4 +11,8 @@ for def in "" "-DWINCTRL_BENCH" "-DWINCTRL_UISIM"; do
   done
   $CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-truncation -fsyntax-only -Itest/stubs -I. $def -x c++ WinCtrl.ino
 done
+# 부품 시험 (hwtest)
+for f in hwtest/*.cpp; do
+  $CXX -std=gnu++17 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-truncation -fsyntax-only -Itest/stubs -I. "$f"
+done
 echo "문법 확인 통과"
