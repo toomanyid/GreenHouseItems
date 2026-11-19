@@ -3,13 +3,17 @@
 //  빌드와 업로드: pio run -e test_pcb -t upload, 시리얼 115200bps (COM 포트)
 //
 //  하는 일
-//   1. 켜자마자 모터 PWM/EN, MC FET 핀을 LOW로 묶는다. 이 시험은 출력 핀을 HIGH로 만들지 않는다.
+//   1. 켜자마자 모터 PWM/EN, MC FET 핀을 LOW로 묶는다. 모터2 구동 명령(u, d) 말고는 출력 핀을
+//      HIGH로 만들지 않는다. 1번 모터와 MC FET 핀은 늘 LOW다.
 //   2. I2C 선 레벨과 장치 주소를 찾고, LCD에 꽉 찬 칸을 1초 띄운 뒤 측정값을 쪽마다 돌려 보인다.
 //   3. 핀마다 내부 풀업/풀다운을 걸어 읽어서, 납땜 붙음(GND나 전원에 붙음)을 찾는다.
 //   4. 1초마다 아날로그 값과 입력 핀을 시리얼에 찍는다.
 //   5. 엔코더를 돌리거나 누르면 [enc]를 찍고, LCD에 3초 동안 엔코더 쪽을 보인다.
 //  시리얼 명령: p 핀 시험 다시, i I2C 다시 찾기, b 삑 소리, l 상태 LED 켜고 끄기,
 //             w 20초 동안 어느 핀이 바뀌는지 감시 (엔코더 선 찾기), h 도움말
+//             u/d 모터2 상승/하강 1초, +/- 모터2 출력 10%씩 (10~100%, 처음 30%)
+//  모터2 구동: 1초(소프트 스타트 포함)가 지나거나, 전류가 RUN_LIMIT_MA를 넘거나, 드라이버 고장 전압이거나,
+//             아무 키나 받으면 바로 끊는다. MC 없이 24V를 드라이버에 바로 넣은 책상 시험용이다.
 //
 //  본 펌웨어 층 규칙과 상관없는 시험용 파일이다. 본 빌드에는 들어가지 않는다.
 // ============================================================
@@ -20,6 +24,7 @@
 #include "config.h"
 #include "dev_Lcd.h"
 #include "dev_Encoder.h"
+#include "dev_MotorDriver.h"
 
 static Lcd s_lcd;
 static Encoder s_enc;
@@ -28,6 +33,14 @@ static uint16_t s_encPress = 0;
 static bool s_encDown = false;
 static uint32_t s_encShowUntil = 0;
 static bool s_led = false;
+
+// 모터2 구동 시험
+static MotorDriver s_m2;
+static uint16_t s_m2Duty = 300;                 // 천분율
+static uint32_t s_m2StopMs = 0;                 // 끊은 시각 (다음 구동까지 REVERSE_WAIT_MS)
+static int32_t s_m2Ohm = SENSE_OHM_300W;
+static const uint32_t RUN_MS = 1000;            // 소프트 스타트 포함 한 번 구동 시간
+static const int32_t  RUN_LIMIT_MA = 5000;      // 시험 전류 상한 (넘으면 바로 끊음)
 
 // 출력 핀: 어떤 경우에도 LOW로만 둔다
 static const uint8_t OUT_PINS[] = {
@@ -252,6 +265,55 @@ static void watchPins(uint32_t ms) {
 
 static void help() {
     Serial.println("[help] p: pin test   i: I2C scan   b: beep   l: status LED on/off   w: watch pins 20s   h: help");
+    Serial.printf("[help] u: M2 up   d: M2 down (%lums, soft start %lums, cut over %ldmA or any key)   +/-: M2 duty (now %u%%)\n",
+                  (unsigned long)RUN_MS, (unsigned long)SOFT_START_MS, (long)RUN_LIMIT_MA, s_m2Duty / 10);
+}
+
+// ---- 모터2 구동 ----
+// 핀 시험(pinMode)으로 PWM 연결이 풀리므로 핀 시험 뒤에 다시 부른다. 감지 저항은 그때의 모델 점퍼로 정한다.
+static void m2Begin() {
+    s_m2Ohm = digitalRead(PIN_MODEL_JUMPER) == LOW ? SENSE_OHM_50W : SENSE_OHM_300W;
+    s_m2StopMs = millis();
+    s_m2.begin(PIN_M2_RPWM, PIN_M2_LPWM, PIN_M2_EN, PIN_M2_CURRENT, LEDC_CH_M2_R, LEDC_CH_M2_L, s_m2Ohm, s_m2StopMs);
+}
+
+static void m2Run(int8_t dir) {
+    while (Serial.available() > 0) Serial.read();
+    while (millis() - s_m2StopMs < REVERSE_WAIT_MS) {     // 끊은 뒤 1초 (드라이버도 막는다)
+        if (Serial.available() > 0) { Serial.read(); Serial.println("[mot] canceled"); return; }
+        delay(10);
+    }
+    Serial.printf("[mot] M2 %s duty %u%%  R_IS %ldohm  limit %ldmA  (any key stops)\n",
+                  dir > 0 ? "UP (RPWM)" : "DOWN (LPWM)", s_m2Duty / 10, (long)s_m2Ohm, (long)RUN_LIMIT_MA);
+    const char* why = "time";
+    int32_t peak = 0, sum = 0, cnt = 0, ma = 0;
+    uint32_t start = millis(), nextLog = 0;
+    for (;;) {
+        uint32_t now = millis(), el = now - start;
+        if (el >= RUN_MS) break;
+        if (Serial.available() > 0) { why = "key"; break; }
+        uint16_t d = el < SOFT_START_MS ? (uint16_t)((uint32_t)s_m2Duty * el / SOFT_START_MS) : s_m2Duty;
+        if (d < 1) d = 1;
+        s_m2.drive(dir, d, now);
+        delay(10);
+        s_m2.sense();
+        ma = s_m2.currentMa();
+        if (ma > peak) peak = ma;
+        if (el >= SOFT_START_MS) { sum += ma; cnt++; }
+        if (s_m2.driverFault()) { why = "driver fault level"; break; }
+        if (ma > RUN_LIMIT_MA) { why = "over current"; break; }
+        if (el >= nextLog) {
+            nextLog = el + 100;
+            Serial.printf("[mot] %4lums duty %3u%%  I2 %5ldmA  I1 %4ldmV\n", (unsigned long)el, d / 10, (long)ma,
+                          (long)readMv(PIN_M1_CURRENT, 2));
+        }
+    }
+    s_m2.cut(millis());
+    s_m2StopMs = millis();
+    Serial.printf("[mot] stop: %s at %lums  last %ldmA  peak %ldmA  avg after soft start %ldmA (%ld samples)\n",
+                  why, (unsigned long)(s_m2StopMs - start), (long)ma, (long)peak,
+                  (long)(cnt ? sum / cnt : 0), (long)cnt);
+    while (Serial.available() > 0) Serial.read();
 }
 
 void setup() {
@@ -263,9 +325,10 @@ void setup() {
     Serial.begin(115200);
     delay(300);
     Serial.printf("\n[boot] WinCtrl PCB test  build %s %s\n", __DATE__, __TIME__);
-    Serial.println("[boot] motor PWM/EN and MC FET pins are held LOW for the whole test");
+    Serial.println("[boot] M1 and MC FET pins are held LOW. M2 runs only on u/d (1s, any key stops)");
 
     pinTest();
+    m2Begin();
     i2cScan();
     s_enc.begin(PIN_ENC_A, PIN_ENC_B, PIN_ENC_SW);
 
@@ -296,7 +359,14 @@ void loop() {
 
     while (Serial.available() > 0) {
         int c = Serial.read();
-        if (c == 'p') { pinTest(); s_enc.begin(PIN_ENC_A, PIN_ENC_B, PIN_ENC_SW); }
+        if (c == 'p') { pinTest(); m2Begin(); s_enc.begin(PIN_ENC_A, PIN_ENC_B, PIN_ENC_SW); }
+        else if (c == 'u') m2Run(+1);
+        else if (c == 'd') m2Run(-1);
+        else if (c == '+' || c == '-') {
+            int d = (int)s_m2Duty + (c == '+' ? 100 : -100);
+            s_m2Duty = (uint16_t)(d < 100 ? 100 : d > 1000 ? 1000 : d);
+            Serial.printf("[mot] M2 duty %u%%\n", s_m2Duty / 10);
+        }
         else if (c == 'i') { i2cScan(); s_lcd.reinit(); }
         else if (c == 'b') beep();
         else if (c == 'l') {
