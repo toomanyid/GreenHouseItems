@@ -11,8 +11,8 @@
 //   5. 엔코더를 돌리거나 누르면 [enc]를 찍고, LCD에 3초 동안 엔코더 쪽을 보인다.
 //  시리얼 명령: p 핀 시험 다시, i I2C 다시 찾기, b 삑 소리, l 상태 LED 켜고 끄기,
 //             w 20초 동안 어느 핀이 바뀌는지 감시 (엔코더 선 찾기), h 도움말
-//             u/d 모터2 상승/하강 1초, +/- 모터2 출력 10%씩 (10~100%, 처음 30%)
-//  모터2 구동: 1초(소프트 스타트 포함)가 지나거나, 전류가 RUN_LIMIT_MA를 넘거나, 드라이버 고장 전압이거나,
+//             u/d 모터2 상승/하강 1초, +/- 모터2 출력 10%씩 (10~100%, 처음 30%), t 구동 시간 1초/3초
+//  모터2 구동: 1초 또는 3초(소프트 스타트 포함)가 지나거나, 전류가 RUN_LIMIT_MA를 넘거나, 드라이버 고장 전압이거나,
 //             아무 키나 받으면 바로 끊는다. MC 없이 24V를 드라이버에 바로 넣은 책상 시험용이다.
 //
 //  본 펌웨어 층 규칙과 상관없는 시험용 파일이다. 본 빌드에는 들어가지 않는다.
@@ -39,7 +39,7 @@ static MotorDriver s_m2;
 static uint16_t s_m2Duty = 300;                 // 천분율
 static uint32_t s_m2StopMs = 0;                 // 끊은 시각 (다음 구동까지 REVERSE_WAIT_MS)
 static int32_t s_m2Ohm = SENSE_OHM_300W;
-static const uint32_t RUN_MS = 1000;            // 소프트 스타트 포함 한 번 구동 시간
+static uint32_t s_runMs = 1000;                 // 소프트 스타트 포함 한 번 구동 시간 (t로 1초/3초)
 static const int32_t  RUN_LIMIT_MA = 5000;      // 시험 전류 상한 (넘으면 바로 끊음)
 
 // 출력 핀: 어떤 경우에도 LOW로만 둔다
@@ -265,8 +265,8 @@ static void watchPins(uint32_t ms) {
 
 static void help() {
     Serial.println("[help] p: pin test   i: I2C scan   b: beep   l: status LED on/off   w: watch pins 20s   h: help");
-    Serial.printf("[help] u: M2 up   d: M2 down (%lums, soft start %lums, cut over %ldmA or any key)   +/-: M2 duty (now %u%%)\n",
-                  (unsigned long)RUN_MS, (unsigned long)SOFT_START_MS, (long)RUN_LIMIT_MA, s_m2Duty / 10);
+    Serial.printf("[help] u: M2 up   d: M2 down (t: %lums, soft start %lums, cut over %ldmA or any key)   +/-: M2 duty (now %u%%)\n",
+                  (unsigned long)s_runMs, (unsigned long)SOFT_START_MS, (long)RUN_LIMIT_MA, s_m2Duty / 10);
 }
 
 // ---- 모터2 구동 ----
@@ -290,7 +290,7 @@ static void m2Run(int8_t dir) {
     uint32_t start = millis(), nextLog = 0;
     for (;;) {
         uint32_t now = millis(), el = now - start;
-        if (el >= RUN_MS) break;
+        if (el >= s_runMs) break;
         if (Serial.available() > 0) { why = "key"; break; }
         uint16_t d = el < SOFT_START_MS ? (uint16_t)((uint32_t)s_m2Duty * el / SOFT_START_MS) : s_m2Duty;
         if (d < 1) d = 1;
@@ -366,6 +366,10 @@ void loop() {
             int d = (int)s_m2Duty + (c == '+' ? 100 : -100);
             s_m2Duty = (uint16_t)(d < 100 ? 100 : d > 1000 ? 1000 : d);
             Serial.printf("[mot] M2 duty %u%%\n", s_m2Duty / 10);
+        }
+        else if (c == 't') {
+            s_runMs = s_runMs == 1000 ? 3000 : 1000;
+            Serial.printf("[mot] M2 run %lums\n", (unsigned long)s_runMs);
         }
         else if (c == 'i') { i2cScan(); s_lcd.reinit(); }
         else if (c == 'b') beep();
