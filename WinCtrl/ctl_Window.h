@@ -32,7 +32,7 @@ public:
     void begin(uint8_t index, Model model, uint32_t now);
 
     // 설정
-    void setSettings(const WindowSettings& s) { _s = s; }
+    void setSettings(const WindowSettings& s) { useSettings(s); }
     void settingsChanged(const WindowSettings& s, bool timesChanged, bool calSaved);
     void setSensorHistory() { _sensorHistory = true; }   // 이 창의 원점 센서 에러 기록이 있음 (전원 켤 때)
 
@@ -102,6 +102,7 @@ private:
     void tickCalibrating(const WindowInputs& in);
     void tickFault(const WindowInputs& in);
 
+    void     useSettings(const WindowSettings& s);   // 저장값을 받고 빈 항목은 모델 기본값으로 채운다
     void     pushEvent(Cause c);
     cs_t     sensorPoint() const;
     uint32_t maxRunMs() const;
@@ -112,7 +113,9 @@ private:
 
     uint8_t        _index = 0;
     Model          _model = Model::W50;
-    WindowSettings _s = {};
+    WindowSettings _raw = {};       // 받은 설정 (빈 항목 그대로)
+    WindowSettings _s = {};         // 실제로 쓰는 설정 (빈 항목은 모델 기본값)
+    bool           _defaults = false; // 기본값을 하나라도 쓰는 중
 
     WinState  _state = WinState::IDLE;
     PosState  _posState = PosState::UNKNOWN;

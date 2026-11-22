@@ -46,9 +46,9 @@ struct Sim {
     bool     relayOn = false;
     uint32_t noDriveMs = 0;      // 방향 전환 시험용: 출력이 0인 시간
 
-    void begin(const WindowSettings& s) {
+    void begin(const WindowSettings& s, Model m = Model::W50) {
         w.setSettings(s);
-        w.begin(0, Model::W50, now);
+        w.begin(0, m, now);
     }
     void step() {
         // 릴레이: 원하면 붙고 0.1초 뒤 준비
@@ -139,15 +139,54 @@ static void test_settings_basics() {
 }
 
 static void test_not_configured_rejects() {
+    // 300W: 원점 시간 기본값이 없으므로 빈 창은 겹침 하강이나 원점 시간을 넣기 전에는 움직이지 않는다
     Sim sim;
     WindowSettings s;
     SettingsRules::defaultsWindow(s);
-    sim.begin(s);
+    sim.begin(s, Model::W300);
     sim.move(1000);
     sim.run(2000);
     CHECK(sim.w.state() == WinState::IDLE);
     CHECK(sim.w.posState() == PosState::UNKNOWN);
     CHECK(!sim.w.configured());
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.defaults);
+    CHECK(st.maxPos == 150 + 30000);                 // 센서 판단 전: 되내림 지점 + 상승 300초
+    CHECK(st.overloadUpMa == 10000 && st.overloadDnMa == 10000);
+}
+
+static void test_empty_uses_model_defaults() {
+    // 50W 빈 창: 상승/하강 180초, 원점 시간 20초, 멈추는 전류 3A로 움직인다 (2026-11-22)
+    Sim sim;
+    WindowSettings s;
+    SettingsRules::defaultsWindow(s);
+    sim.p.stuck = 1;                                 // 원점 센서 없음
+    sim.p.u = 5000;
+    sim.begin(s);
+    CHECK(sim.w.configured());
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.defaults);
+    CHECK(st.maxPos == 150 + 18000);                 // 센서 판단 전: 되내림 지점 + 상승 180초
+    CHECK(st.overloadUpMa == 3000 && st.overloadDnMa == 3000);
+    sim.move(3000);
+    CHECK(sim.runUntil(WinState::HOMING, 3000));
+    CHECK(sim.runUntilIdle(300000));
+    CHECK(sim.w.pos() == 3000);
+    CHECK(sim.w.posState() == PosState::VALID);
+
+    // 값을 넣은 항목은 그 값을 쓰고, 모두 넣으면 기본값 표시가 꺼진다
+    WindowSettings f = baseSettings();
+    Sim g;
+    g.begin(f);
+    g.w.fillStatus(st);
+    CHECK(!st.defaults);
+    CHECK(st.overloadUpMa == 2500 * 13 / 10);
+    f.iMaxDn = -1;                                   // 하나라도 비면 다시 기본값 표시
+    g.w.settingsChanged(f, false, false);
+    g.w.fillStatus(st);
+    CHECK(st.defaults && st.overloadUpMa == 3250 && st.overloadDnMa == 3000);
 }
 
 static void test_power_on_waits() {
@@ -529,9 +568,9 @@ static void test_sensor_wire_broken_found_at_bottom() {
 static void test_sensor_fails_without_home_time() {
     Sim sim;
     WindowSettings s = baseSettings();
-    s.homeTime = CS_EMPTY;
+    s.homeTime = CS_EMPTY;                       // 300W는 원점 시간 기본값이 없다
     sim.p.u = 3000;
-    sim.begin(s);
+    sim.begin(s, Model::W300);
     sim.move(10000);
     CHECK(sim.runUntilIdle(200000));
     sim.p.stuck = 2;
@@ -572,13 +611,13 @@ static void test_no_sensor_decided_at_bottom() {
     CHECK(st.sensorError);
     CHECK(h.w.pos() == 3000);
 
-    // 원점 시간도 없으면 하한에서 CLOSE로 머문다
+    // 원점 시간도 없으면 하한에서 CLOSE로 머문다 (300W: 원점 시간 기본값이 없음)
     Sim n;
     WindowSettings s = baseSettings();
     s.homeTime = CS_EMPTY;
     n.p.u = 7000;
     n.p.stuck = 1;
-    n.begin(s);
+    n.begin(s, Model::W300);
     n.move(3000);
     CHECK(n.runUntilIdle(300000));
     CHECK(n.w.state() == WinState::IDLE && n.w.posState() == PosState::CLOSED);
@@ -722,6 +761,7 @@ static void test_current_monitor() {
 int main() {
     RUN(test_settings_basics);
     RUN(test_not_configured_rejects);
+    RUN(test_empty_uses_model_defaults);
     RUN(test_power_on_waits);
     RUN(test_homing_then_target_above);
     RUN(test_homing_then_target_below_sensor_point);

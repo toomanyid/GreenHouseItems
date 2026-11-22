@@ -37,6 +37,10 @@ pct_t targetPct(const WindowStatus& w);
 // 줄 끝 상태 글자: ^ 상승, v 하강, L 리밋, ? 위치 모름, ! 고장, 빈칸 대기
 char statusChar(const WindowStatus& w);
 
+// 켤 때 모터 정보 없음 경고 (2026-11-22). mask: 기본값을 쓰는 창 (1 = 창1, 2 = 창2)
+// "MOTOR NOT SET 12" / "USE DEFAULT PUSH"
+void notSetLines(char* r0, char* r1, uint8_t mask);
+
 // 작은 글씨 화면의 창 한 줄 (스펙 7절). "1 45.0>99.9    ^", "1 ERR OVERLOAD !"
 void smallLine(char* out, const WindowStatus& w, uint8_t num, bool sensorErr);
 

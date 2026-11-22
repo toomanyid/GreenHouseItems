@@ -1,4 +1,5 @@
 #include "Settings.h"
+#include "config.h"
 
 namespace SettingsRules {
 
@@ -41,6 +42,21 @@ void defaults(Settings& s) {
     defaultsTemp(s.temp);
     s.clickSound = true;
     s.alarmSound = true;
+}
+
+bool fillModelDefaults(WindowSettings& w, Model m) {
+    bool used = false;
+    cs_t travel = m == Model::W300 ? DEFAULT_TRAVEL_CS_300W : DEFAULT_TRAVEL_CS_50W;
+    cs_t home   = m == Model::W300 ? DEFAULT_HOME_CS_300W : DEFAULT_HOME_CS_50W;
+    if (w.upTime < 0)   { w.upTime = travel; used = true; }
+    if (w.downTime < 0) { w.downTime = travel; used = true; }
+    if (w.homeTime < 0 && home >= 0) { w.homeTime = home; used = true; }
+    if (w.iMaxUp < 0 || w.iMaxDn < 0) used = true;
+    return used;
+}
+
+int32_t defaultTripMa(Model m) {
+    return m == Model::W300 ? DEFAULT_TRIP_MA_300W : DEFAULT_TRIP_MA_50W;
 }
 
 static bool inRangeOrEmpty(cs_t v, cs_t lo, cs_t hi) {

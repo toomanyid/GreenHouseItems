@@ -66,6 +66,15 @@ const cs_t     CLOSE_MARGIN          = 300;   // CLOSE에서 겹침 하강 시�
 const cs_t     LIMIT_BACKUP_MARGIN   = 50;    // 상한 리밋 세 번째 겹의 여유 (임시)
 const uint32_t MAX_RUN_FALLBACK_MS   = 1200000; // 최대 구동 시간을 알 수 없을 때 (20분)
 
+// 모터 정보(창 설정)가 비어 있을 때 쓰는 모델별 기본값 (2026-11-22 사용자 결정)
+// 비어 있는 항목만 채운다. 켤 때 "모터 정보 없음" 경고를 띄우고 누를 때까지 기다린다.
+const cs_t     DEFAULT_TRAVEL_CS_50W  = 18000;  // 유효 상승/하강 시간 180초
+const cs_t     DEFAULT_TRAVEL_CS_300W = 30000;  // 300초
+const cs_t     DEFAULT_HOME_CS_50W    = 2000;   // 원점 시간 20초
+const cs_t     DEFAULT_HOME_CS_300W   = -1;     // 300W는 없음 (CS_EMPTY)
+const int32_t  DEFAULT_TRIP_MA_50W    = 3000;   // 최대 운전 전류가 비어 있을 때 멈추는 전류 (과부하 경계 자체)
+const int32_t  DEFAULT_TRIP_MA_300W   = 10000;
+
 // ============================================================
 //  이동 시간 측정
 // ============================================================

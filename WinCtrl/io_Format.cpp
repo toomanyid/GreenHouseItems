@@ -133,6 +133,13 @@ pct_t targetPct(const WindowStatus& w) {
     return SettingsRules::pctFromPos(w.target, w.maxPos);
 }
 
+void notSetLines(char* r0, char* r1, uint8_t mask) {
+    strcpy(r0, "MOTOR NOT SET   ");
+    if (mask & 1) r0[14] = '1';
+    if (mask & 2) r0[15] = '2';
+    strcpy(r1, "USE DEFAULT PUSH");
+}
+
 void smallLine(char* out, const WindowStatus& w, uint8_t num, bool sensorErr) {
     char b[12];
     blank(out, 16);

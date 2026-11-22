@@ -28,6 +28,11 @@ namespace SettingsRules {
     void defaultsWindow(WindowSettings& w);
     void defaultsTemp(TempSettings& t);
 
+    // 비어 있는 모터 정보를 모델별 기본값으로 채운다 (UP/DOWN TIME, HOME TIME).
+    // 최대 운전 전류는 채우지 않고 비워 둔다 (멈추는 전류는 defaultTripMa). 기본값을 하나라도 쓰면 true
+    bool fillModelDefaults(WindowSettings& w, Model m);
+    int32_t defaultTripMa(Model m);
+
     // 저장해도 되는 값인지. 상한 리밋이 최대 위치를 넘거나 최대 구동 시간이 상승 시간보다 짧으면 false
     bool validWindow(const WindowSettings& w, bool sensorActive);
     bool validTemp(const TempSettings& t);

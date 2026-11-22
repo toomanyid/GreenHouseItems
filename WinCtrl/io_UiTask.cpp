@@ -89,7 +89,7 @@ const char* const TOP_ITEMS[] = {
 };
 const uint8_t TOP_COUNT = 9;
 
-enum class Screen : uint8_t { SPLASH, MAIN, MENU };
+enum class Screen : uint8_t { SPLASH, NOTICE, MAIN, MENU };   // NOTICE: 모터 정보 없음 경고, 누르면 MAIN
 
 enum class Level : uint8_t {
     TOP, LIST, EDIT, CAL_SELECT, CAL_CONFIRM, CAL_RUN, CAL_RESULT, CAL_SAVE, DIAG, LOG, INFO, MSG
@@ -171,6 +171,7 @@ private:
     void consumeEvents(uint32_t now);
     void drawEstop();
     void drawSplash();
+    void drawNotice();
 
     Lcd      _lcd;
     Encoder  _enc;
@@ -191,6 +192,7 @@ private:
     Screen   _screen = Screen::SPLASH;
     uint32_t _startMs = 0;
     bool     _bootSoundDone = false;
+    uint8_t  _noticeMask = 0;       // 모터 정보 없음 경고에 보일 창
 
     // 입력 상태
     bool     _btnDown = false;
@@ -372,7 +374,11 @@ void Ui::tick() {
 
     if (_screen == Screen::SPLASH) {
         // 자가 점검에서 문제가 나오면 기다리지 않고 넘어간다
-        if (now - _startMs >= SPLASH_MS || _st.relayFault) _screen = Screen::MAIN;
+        if (now - _startMs >= SPLASH_MS || _st.relayFault) {
+            // 모터 정보가 비어 기본값으로 도는 창이 있으면 누를 때까지 경고를 둔다 (MC 고장이면 고장 화면이 먼저)
+            _noticeMask = (uint8_t)((_st.win[0].defaults ? 1 : 0) | (_st.win[1].defaults ? 2 : 0));
+            _screen = (_noticeMask && !_st.relayFault) ? Screen::NOTICE : Screen::MAIN;
+        }
     }
     if (!_bootSoundDone && _st.bootDone) {
         _bootSoundDone = true;
@@ -390,6 +396,7 @@ void Ui::tick() {
 
     if (_screen == Screen::SPLASH) drawSplash();
     else if (_st.estop) drawEstop();
+    else if (_screen == Screen::NOTICE) drawNotice();
     else if (_screen == Screen::MAIN) drawMain();
     else drawMenu();
 
@@ -398,7 +405,7 @@ void Ui::tick() {
     bool alarm = alarmOn();
     if (alarm && !_alarmWas) _alarmSince = now;
     _alarmWas = alarm;
-    bool active = _screen == Screen::SPLASH || now - _lastInputMs < BACKLIGHT_OFF_MS;
+    bool active = _screen == Screen::SPLASH || _screen == Screen::NOTICE || now - _lastInputMs < BACKLIGHT_OFF_MS;
     _dark = !active && !alarm;
     _backlight = active || (alarm && ((now - _alarmSince) / BACKLIGHT_ALARM_MS) % 2 == 0);
     uint8_t mode = active ? 1 : (alarm ? 2 : 0);
@@ -495,12 +502,13 @@ void Ui::readInput(uint32_t now) {
 
 void Ui::onShort(uint32_t now) {
     if (_screen == Screen::SPLASH || _st.estop) return;
+    if (_screen == Screen::NOTICE) { _screen = Screen::MAIN; return; }   // 경고 확인
     if (_screen == Screen::MAIN) mainShort(now);
     else menuShort(now);
 }
 
 void Ui::onLong(uint32_t now) {
-    if (_screen == Screen::SPLASH || _st.estop) return;
+    if (_screen == Screen::SPLASH || _screen == Screen::NOTICE || _st.estop) return;
     if (_screen == Screen::MAIN) {
         if (anyMoving() || !_st.bootDone) { _snd.play(Snd::ERROR_BEEP); return; }
         _snd.play(Snd::LONG_PRESS);
@@ -517,7 +525,7 @@ void Ui::onLong(uint32_t now) {
 }
 
 void Ui::onSteps(const EncStep* st, uint8_t n, uint32_t now) {
-    if (_screen == Screen::SPLASH || _st.estop) return;
+    if (_screen == Screen::SPLASH || _screen == Screen::NOTICE || _st.estop) return;
     int8_t dirs[16];
     uint32_t gaps[16];
     uint8_t m = 0;
@@ -911,6 +919,13 @@ void Ui::drawSplash() {
 #else
     _lcd.setLine(1, _dateLine);
 #endif
+}
+
+void Ui::drawNotice() {
+    char r0[17], r1[17];
+    Fmt::notSetLines(r0, r1, _noticeMask);
+    _lcd.setLine(0, r0);
+    _lcd.setLine(1, r1);
 }
 
 // ============================================================

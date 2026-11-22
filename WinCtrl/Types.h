@@ -137,6 +137,7 @@ struct WindowStatus {
     int8_t      nextDir;        // REVERSE_WAIT 뒤 방향
     Cause       fault;          // FAULT 원인
     bool        configured;     // 이동을 받을 수 있는 설정인지
+    bool        defaults;       // 비어 있는 모터 정보를 모델 기본값으로 채워 쓰는 중
     bool        sensorFound;    // 원점 센서 "있음"으로 정해짐 (입력이 ON이 됨)
     bool        sensorAbsent;   // "없음"으로 정해짐 (OFF인 채로 하한). 둘 다 false면 아직 모름
     bool        sensorActive;   // 지금 센서로 원점을 잡는지

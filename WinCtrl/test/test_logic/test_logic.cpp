@@ -58,6 +58,12 @@ static void test_format_values() {
 static void test_format_small() {
     char l[24];
     WindowStatus w = idleWin(PosState::VALID, 9000, 18300);
+    {
+        char r0[17], r1[17];
+        Fmt::notSetLines(r0, r1, 3); CHECK(eq(r0, "MOTOR NOT SET 12")); CHECK(eq(r1, "USE DEFAULT PUSH"));
+        Fmt::notSetLines(r0, r1, 1); CHECK(eq(r0, "MOTOR NOT SET 1 "));
+        Fmt::notSetLines(r0, r1, 2); CHECK(eq(r0, "MOTOR NOT SET  2"));
+    }
     Fmt::smallLine(l, w, 2, false); CHECK(eq(l, "2 49.6          "));
     w = idleWin(PosState::CLOSED, 0, 18000);
     Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 CLOSE         "));

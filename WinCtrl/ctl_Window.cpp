@@ -11,20 +11,32 @@ cs_t Window::limitPos() const    { return SettingsRules::limitPos(_s, maxPos());
 uint32_t Window::maxRunMs() const {
     if (_s.maxRunS > 0) return (uint32_t)_s.maxRunS * 1000;
     if (_s.totalUp > 0) return (uint32_t)_s.totalUp * 12;      // 전체 상승 시간(cs) × 10ms × 1.2
+    // 측정 전: (유효 상승 + 원점 시간) × 1.2. 기본값을 쓰면 여기로 온다
+    if (_s.upTime > 0) return (uint32_t)(_s.upTime + (_s.homeTime > 0 ? _s.homeTime : 0)) * 12;
     return 0;
 }
 
 int32_t Window::overloadMa(int8_t dir) const {
     int32_t base = dir > 0 ? _s.iMaxUp : _s.iMaxDn;
-    if (base < 0) return fixedLimitMa();                         // 기준이 비어 있으면 고정 상한
+    int32_t fixed = fixedLimitMa();
+    if (base < 0) {                                              // 비어 있으면 모델 기본 멈춤 전류
+        int32_t d = SettingsRules::defaultTripMa(_model);
+        return d < fixed ? d : fixed;
+    }
     return base * _s.ovlRate / 10;
 }
 
+void Window::useSettings(const WindowSettings& s) {
+    _raw = s;
+    _s = s;
+    _defaults = SettingsRules::fillModelDefaults(_s, _model);
+}
+
 // 기본값이 "없음"인 항목이 비어 있으면 이동을 받지 않는다 (스펙 8절).
+// 상승/하강 시간, 원점 시간(50W), 최대 운전 전류는 비어 있으면 모델 기본값을 쓴다 (useSettings).
 // 센서가 없거나 끈 창은 겹침 하강 시간 대신 원점 시간이 있어야 한다.
 bool Window::configured() const {
     if (_s.upTime < 0 || _s.downTime < 0) return false;
-    if (_s.iMaxUp < 0 || _s.iMaxDn < 0) return false;
     if (maxRunMs() == 0) return false;
     if (!sensorActive()) return _s.homeTime >= 0;
     // 센서 유무가 아직 정해지지 않았으면 어느 쪽 설정이든 갖춰져 있으면 받는다
@@ -38,6 +50,7 @@ bool Window::configured() const {
 void Window::begin(uint8_t index, Model model, uint32_t now) {
     _index = index;
     _model = model;
+    useSettings(_raw);              // 모델이 정해졌으므로 기본값을 다시 채운다
     _state = WinState::IDLE;
     _posState = PosState::UNKNOWN;
     _bootGuardMs = now + REVERSE_WAIT_MS;     // 전원을 켠 뒤 첫 구동 전에도 1초를 기다린다
@@ -45,7 +58,7 @@ void Window::begin(uint8_t index, Model model, uint32_t now) {
 }
 
 void Window::settingsChanged(const WindowSettings& s, bool timesChanged, bool calSaved) {
-    _s = s;
+    useSettings(s);
     if (calSaved) {
         // 측정 직후에는 하한에 있으므로 닫힘으로 둔다
         _posState = PosState::CLOSED;
@@ -874,6 +887,7 @@ void Window::fillStatus(WindowStatus& st) const {
     st.nextDir = (_state == WinState::REVERSE_WAIT) ? _resumeDir : (_waitRelay ? _dir : 0);
     st.fault = _fault;
     st.configured = configured();
+    st.defaults = _defaults;
     st.sensorFound = _known == Known::PRESENT;
     st.sensorAbsent = _known == Known::ABSENT;
     st.sensorActive = sensorActive();
