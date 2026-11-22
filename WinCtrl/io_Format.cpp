@@ -122,15 +122,18 @@ char statusChar(const WindowStatus& w) {
     }
 }
 
+// home이 bottom과 같은 창(원점 시간 0)은 home에 있을 때도 CLOSE로 보인다 (스펙 3절)
 pct_t winPct(const WindowStatus& w) {
     if (w.posState == PosState::CLOSED) return PCT_CLOSE;
     if (w.posState == PosState::UNKNOWN) return PCT_UNKNOWN;
-    return SettingsRules::pctFromPos(w.pos, w.maxPos);
+    if (w.home <= 0 && w.pos <= 0) return PCT_CLOSE;
+    return SettingsRules::pctFromPos(w.pos, w.home, w.maxPos);
 }
 
 pct_t targetPct(const WindowStatus& w) {
     if (w.target < 0) return PCT_CLOSE;
-    return SettingsRules::pctFromPos(w.target, w.maxPos);
+    if (w.home <= 0 && w.target <= 0) return PCT_CLOSE;
+    return SettingsRules::pctFromPos(w.target, w.home, w.maxPos);
 }
 
 void notSetLines(char* r0, char* r1, uint8_t mask) {

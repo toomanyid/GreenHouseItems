@@ -71,20 +71,19 @@ struct Alert {
 // ============================================================
 //  설정 (플래시에 저장)
 // ============================================================
+// 위치는 bottom(내장 하한 리밋)에서 올라간 초로 센다 (스펙 3절, 2026-11-22).
+// 모터 정보(상승/하강/원점 시간, 최대 운전 전류)가 비어 있으면 모델 기본값으로 움직인다 (스펙 8절).
 struct WindowSettings {
-    cs_t     upTime;       // 유효 상승 시간
-    cs_t     downTime;     // 유효 하강 시간
-    cs_t     overlap;      // 겹침 하강 시간
-    cs_t     backoff;      // 되내림 시간
+    cs_t     upTime;       // 상승 시간 bottom → top (CS_EMPTY = 모델 기본값)
+    cs_t     downTime;     // 하강 시간 top → bottom (CS_EMPTY = 모델 기본값)
+    cs_t     homeTime;     // 원점 시간 bottom → home (CS_EMPTY = 모델 기본값)
+    cs_t     backoff;      // 되내림 시간 (원점 센서를 켠 창)
+    cs_t     sensorRun;    // 측정으로 잰 bottom → 센서 지점 (메뉴에 보이지 않음, 원점 시간 계산)
     int16_t  limitPct;     // 상한 리밋, 위치 백분율 0.1 단위 (PCT_MAX = 리밋 없음)
-    cs_t     homeTime;     // 원점 시간 (센서 없을 때)
-    cs_t     totalUp;      // 전체 상승 시간 (측정값, 메뉴에 보이지 않음)
-    int32_t  iMaxUp;       // 최대 운전 전류 mA (-1 = 비어 있음)
+    int32_t  iMaxUp;       // 최대 운전 전류 mA, 넘으면 과부하 (-1 = 모델 기본값)
     int32_t  iMaxDn;
-    uint8_t  ovlRate;      // 과부하 배율, 0.1배 단위 (13 = 1.3배)
-    int16_t  maxRunS;      // 최대 구동 시간 초 (-1 = 자동: 전체 상승의 1.2배)
-    uint8_t  rehome;       // 재원점 기동 횟수 (0 = 끔)
-    bool     homeSensAuto; // 원점 센서 사용: 자동(true) / 끔(false)
+    int16_t  maxRunS;      // 최대 구동 시간 초 (-1 = 자동: 상승 시간의 1.2배)
+    bool     homeSensAuto; // 원점 센서 사용: 자동(true) / 끔(false, 기본)
     bool     link;         // 위치 동기와 온도제어에 참여 (LINK)
 };
 
@@ -123,8 +122,9 @@ struct CalStatus {
     int32_t  currentMa;
     Cause    failCause;    // 실패 원인 (정지/비상정지로 중단되면 NONE)
     bool     outOfRange;   // 끝까지 갔지만 값이 허용 범위 밖
-    // 결과 (phase == DONE)
-    cs_t     effUp, effDown, overlap, totalUp, totalDown;
+    // 결과 (phase == DONE). 최대 운전 전류는 잰 값 × 1.3 (저장할 값)
+    cs_t     upTime, downTime;
+    cs_t     sensorRun;    // bottom → 센서 지점 (센서로 잰 측정만, 아니면 CS_EMPTY)
     int32_t  iMaxUp, iMaxDn, iAvgUp, iAvgDn;
 };
 
@@ -143,8 +143,9 @@ struct WindowStatus {
     bool        sensorActive;   // 지금 센서로 원점을 잡는지
     bool        sensorError;    // 원점 센서 에러 표시 중
     SensorState sensor;
-    cs_t        maxPos;
-    cs_t        limit;          // 실제로 쓰는 상한 위치 (리밋 OFF면 maxPos)
+    cs_t        home;           // home 위치 (bottom = 0)
+    cs_t        maxPos;         // top 위치
+    cs_t        limit;          // 실제로 쓰는 상한 위치 (리밋 OFF면 top)
     int32_t     currentMa;
     int32_t     moveMaxMa;      // 마지막(또는 지금) 이동의 최대 전류 (0.3초 평균)
     int32_t     overloadUpMa;   // 과부하 기준

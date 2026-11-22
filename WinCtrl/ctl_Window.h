@@ -53,11 +53,12 @@ public:
     // 조정 층(온도제어)에서 쓰는 조회
     WinState state() const       { return _state; }
     PosState posState() const    { return _posState; }
-    cs_t     pos() const         { return _pos; }
+    cs_t     pos() const         { return _pos; }      // bottom = 0 (스펙 3절)
+    cs_t     home() const        { return _s.homeTime; }
     cs_t     limitPos() const;
-    cs_t     maxPos() const;
+    cs_t     maxPos() const;                           // top
     bool     configured() const;
-    // 센서로 원점을 잡는지. 아직 정해지지 않았으면 있는 것처럼 잡는다 (스펙 10절)
+    // 센서로 원점을 잡는지. 설정이 "자동"이고 아직 정해지지 않았으면 있는 것처럼 잡는다 (스펙 10절)
     bool     sensorActive() const { return _s.homeSensAuto && _known != Known::ABSENT && !_sensorErrMode; }
 
 private:
@@ -97,7 +98,6 @@ private:
     // 상태별 일
     void tickHoming(const WindowInputs& in);
     void tickMoving(const WindowInputs& in);
-    void tickClosing(const WindowInputs& in);
     void tickReverseWait(const WindowInputs& in);
     void tickCalibrating(const WindowInputs& in);
     void tickFault(const WindowInputs& in);
@@ -108,6 +108,7 @@ private:
     uint32_t maxRunMs() const;
     int32_t  overloadMa(int8_t dir) const;
     int32_t  fixedLimitMa() const { return _model == Model::W300 ? FIXED_LIMIT_MA_300W : FIXED_LIMIT_MA_50W; }
+    void     startUpPass(cs_t base) { _upPassActive = true; _upPassStart = runCs(); _upPassBase = base; }
     bool     limitEnabled() const { return _s.limitPct < PCT_MAX && limitPos() < maxPos(); }
     cs_t     runCs() const        { return (cs_t)(_runRaw / 1000); }
 
@@ -143,9 +144,9 @@ private:
     CurrentMonitor _mon;
     int32_t   _moveMax = 0;
     int32_t   _currentMa = 0;
-    uint16_t  _startsWithoutPass = 0;
-    bool      _upPassActive = false;
+    bool      _upPassActive = false;    // bottom이나 센서 지점에서 연속으로 올리는 중 (리밋 세 번째 겹)
     cs_t      _upPassStart = 0;
+    cs_t      _upPassBase = 0;
 
     // 방향 전환 정지
     WinState  _resume = WinState::IDLE;
@@ -154,8 +155,6 @@ private:
     // 원점 잡기와 닫기
     HomePhase _hPhase = HomePhase::DOWN_TO_SENSOR;
     uint32_t  _phaseMs = 0;
-    bool      _closeSensorSeen = false;
-    cs_t      _closeSensorRun = 0;
     bool      _passedThisTick = false;
 
     // 고장

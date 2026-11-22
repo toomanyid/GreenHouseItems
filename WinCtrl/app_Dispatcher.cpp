@@ -182,6 +182,7 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
                          && st != WinState::ESTOP && st != WinState::CALIBRATING;
             v[i].posState = _w[i].posState();
             v[i].pos = _w[i].pos();
+            v[i].home = _w[i].home();
             v[i].limit = _w[i].limitPos();
         }
         Job jobs[2];

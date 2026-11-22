@@ -12,7 +12,8 @@ public:
     struct WinView {
         bool     eligible;   // LINK가 켜져 있고, 고장, 비상정지, 측정 중이 아니고 이동 시간 설정이 있음
         PosState posState;
-        cs_t     pos;
+        cs_t     pos;        // bottom = 0
+        cs_t     home;       // home 위치 (닫는 이동은 여기서 멈춘다)
         cs_t     limit;
     };
 

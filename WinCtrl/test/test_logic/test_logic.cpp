@@ -15,11 +15,12 @@ static bool eq(const char* a, const char* b) {
     return ok;
 }
 
-static WindowStatus idleWin(PosState ps, cs_t pos, cs_t maxPos) {
+static WindowStatus idleWin(PosState ps, cs_t pos, cs_t maxPos, cs_t home = 0) {
     WindowStatus w = {};
     w.state = WinState::IDLE;
     w.posState = ps;
     w.pos = pos;
+    w.home = home;
     w.maxPos = maxPos;
     w.limit = maxPos;
     w.target = CS_EMPTY;
@@ -46,8 +47,10 @@ static void test_format_values() {
     Fmt::buildDate(b, "Oct  9 2026", "19:47:12"); CHECK(eq(b, "2026-10-09 19:47"));
     Fmt::splashTop(b, "WIN CTRL", 0, 9); CHECK(eq(b, "WIN CTRL   00.09"));
 
-    // 위치는 백분율로만 (스펙 3절): 0.0 CLOSE, 1.0 = 0.0초, 99.9 = 최대 위치
-    CHECK(Fmt::winPct(idleWin(PosState::VALID, 0, 18300)) == 10);
+    // 위치는 백분율로만 (스펙 3절): 0.0 CLOSE(bottom), 1.0 = home, 99.9 = top
+    CHECK(Fmt::winPct(idleWin(PosState::VALID, 2000, 15000, 2000)) == 10);
+    CHECK(Fmt::winPct(idleWin(PosState::VALID, 8000, 15000, 2000)) == 466);
+    CHECK(Fmt::winPct(idleWin(PosState::VALID, 0, 18300)) == PCT_CLOSE);   // home = bottom이면 CLOSE
     CHECK(Fmt::winPct(idleWin(PosState::VALID, 9000, 18300)) == 496);
     CHECK(Fmt::winPct(idleWin(PosState::VALID, 18300, 18300)) == 999);
     CHECK(Fmt::winPct(idleWin(PosState::CLOSED, 0, 18300)) == PCT_CLOSE);
@@ -211,7 +214,7 @@ static void test_temp_control() {
     tc.setSettings(ts);
     tc.begin(0);
     TempControl::WinView v[2];
-    for (int i = 0; i < 2; i++) { v[i].eligible = true; v[i].posState = PosState::VALID; v[i].pos = 1000; v[i].limit = 18000; }
+    for (int i = 0; i < 2; i++) { v[i].eligible = true; v[i].posState = PosState::VALID; v[i].pos = 1000; v[i].home = 0; v[i].limit = 18000; }
     Job jobs[2];
     uint32_t t = 0;
     uint8_t n = 0;
@@ -233,12 +236,24 @@ static void test_temp_control() {
     t += 60000;
     n = tc.tick(t, true, 300, false, v, jobs);
     CHECK(n == 2 && jobs[0].target == 2750);
-    // 낮으면 닫는 쪽, 0.0초에서 한 번 더 낮으면 CLOSE
+    // 낮으면 닫는 쪽: home 아래로는 가지 않는다
+    v[0].home = v[1].home = 2000;
+    v[0].pos = v[1].pos = 2250;
+    t += 60000;
+    n = tc.tick(t, true, 260, false, v, jobs);
+    CHECK(n == 2 && jobs[0].type == JobType::MOVE && jobs[0].target == 2000);
+    // home에서 한 번 더 낮으면 CLOSE
+    v[0].pos = v[1].pos = 2000;
+    t += 60000;
+    n = tc.tick(t, true, 260, false, v, jobs);
+    CHECK(n == 2 && jobs[0].type == JobType::CLOSE);
+    v[0].home = v[1].home = 0;
+    // home = bottom인 창도 같다
     v[0].pos = v[1].pos = 0;
     t += 60000;
     n = tc.tick(t, true, 260, false, v, jobs);
     CHECK(n == 2 && jobs[0].type == JobType::CLOSE);
-    // CLOSE에서는 불감대 안으로 들어오면 0.0초로
+    // CLOSE에서는 불감대 안으로 들어오면 home으로
     v[0].posState = v[1].posState = PosState::CLOSED;
     t += 60000;
     n = tc.tick(t, true, 276, false, v, jobs);
@@ -298,8 +313,9 @@ static Settings baseSettings() {
     SettingsRules::defaults(s);
     for (int i = 0; i < 2; i++) {
         WindowSettings& w = s.win[i];
-        w.upTime = 19000; w.downTime = 19000; w.overlap = 1000; w.backoff = 150;
-        w.totalUp = 20000; w.iMaxUp = 2500; w.iMaxDn = 2500;
+        // bottom → top 200초, 센서 지점 10초, 되내림 1.5초 → 원점 시간 8.5초
+        w.upTime = 20000; w.downTime = 20000; w.backoff = 150; w.sensorRun = 1000;
+        w.iMaxUp = 3250; w.iMaxDn = 3250; w.homeSensAuto = true;
         SettingsRules::recomputeHomeTime(w);
     }
     return s;
@@ -495,7 +511,7 @@ static void test_uisim_plant() {
     d.fillStatus(status);
     CHECK(status.win[0].cal.phase == CalPhase::DONE);
     CHECK(!status.win[0].cal.outOfRange);
-    CHECK_NEAR(status.win[0].cal.totalUp, SIM_TRAVEL_CS, 3);
+    CHECK_NEAR(status.win[0].cal.upTime, SIM_TRAVEL_CS, 3);
     CHECK(status.win[0].state == WinState::IDLE);
     CHECK(w[0].pos() == 0);
 }

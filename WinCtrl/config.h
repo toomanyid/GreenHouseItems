@@ -18,7 +18,7 @@ const cs_t     CS_EMPTY = -1;               // 설정값이 비어 있음
 const cs_t     CS_STEP  = 50;               // 직접 입력하는 시간 설정값의 단위 (0.5초)
 
 // 화면 표시와 위치 입력은 위치 백분율, 0.1 = 1 (스펙 3절).
-//   0.0 = CLOSE, 1.0 = 0.0초, 99.9 = 최대 위치. 100은 쓰지 않는다.
+//   0.0 = CLOSE(bottom), 1.0 = home, 99.9 = top. 100은 쓰지 않는다. 위치(cs)는 bottom = 0.
 typedef int16_t pct_t;
 const pct_t    PCT_CLOSE = 0;
 const pct_t    PCT_MIN   = 10;               // 1.0
@@ -62,18 +62,18 @@ const int32_t  DRIVER_FAULT_MV       = 3000;  // 감지 전압이 이 이상이�
 const uint32_t SENSOR_DEBOUNCE_MS    = 100;   // 같은 값이 이어져야 상태를 바꿈 (임시)
 const uint32_t HOME_EXTRA_DOWN_MS    = 1000;  // 원점 잡기에서 더 내리는 시간
 const cs_t     POS_CHECK_MARGIN      = 500;   // 센서 지점보다 5초 넘게 위인데 "있음"이면 이상 (임시)
-const cs_t     CLOSE_MARGIN          = 300;   // CLOSE에서 겹침 하강 시간에 더하는 여유 (임시)
 const cs_t     LIMIT_BACKUP_MARGIN   = 50;    // 상한 리밋 세 번째 겹의 여유 (임시)
 const uint32_t MAX_RUN_FALLBACK_MS   = 1200000; // 최대 구동 시간을 알 수 없을 때 (20분)
 
-// 모터 정보(창 설정)가 비어 있을 때 쓰는 모델별 기본값 (2026-11-22 사용자 결정)
+// 모터 정보(창 설정)가 비어 있을 때 쓰는 모델별 기본값 (스펙 8절, 2026-11-22)
 // 비어 있는 항목만 채운다. 켤 때 "모터 정보 없음" 경고를 띄우고 누를 때까지 기다린다.
-const cs_t     DEFAULT_TRAVEL_CS_50W  = 18000;  // 유효 상승/하강 시간 180초
+const cs_t     DEFAULT_TRAVEL_CS_50W  = 15000;  // 상승/하강 시간 150초
 const cs_t     DEFAULT_TRAVEL_CS_300W = 30000;  // 300초
 const cs_t     DEFAULT_HOME_CS_50W    = 2000;   // 원점 시간 20초
-const cs_t     DEFAULT_HOME_CS_300W   = -1;     // 300W는 없음 (CS_EMPTY)
-const int32_t  DEFAULT_TRIP_MA_50W    = 3000;   // 최대 운전 전류가 비어 있을 때 멈추는 전류 (과부하 경계 자체)
-const int32_t  DEFAULT_TRIP_MA_300W   = 10000;
+const cs_t     DEFAULT_HOME_CS_300W   = 0;      // 0초 (home = bottom)
+const int32_t  DEFAULT_IMAX_MA_50W    = 3000;   // 최대 운전 전류 (넘으면 과부하)
+const int32_t  DEFAULT_IMAX_MA_300W   = 10000;
+const uint8_t  CAL_IMAX_RATE_X10      = 13;     // 측정한 최대 전류 × 1.3을 최대 운전 전류로 저장
 
 // ============================================================
 //  이동 시간 측정

@@ -97,84 +97,74 @@ struct Sim {
     }
 };
 
-// 시험용 설정: 전체 상승 200초, 센서는 하한에서 10초 위, 되내림 1.5초
+// 시험용 설정: 상승/하강 200초(bottom → top), 센서는 bottom에서 10초 위, 되내림 1.5초,
+// 원점 시간은 센서 지점 − 되내림 = 8.5초. 위치는 bottom = 0이라 가짜 개폐기의 u와 같다 (스펙 3절)
 static WindowSettings baseSettings() {
     WindowSettings s;
     SettingsRules::defaultsWindow(s);
-    s.upTime = 19000;
-    s.downTime = 19000;
-    s.overlap = 1000;
+    s.upTime = 20000;
+    s.downTime = 20000;
     s.backoff = 150;
-    s.totalUp = 20000;
-    s.iMaxUp = 2500;
-    s.iMaxDn = 2500;
+    s.sensorRun = 1000;
+    s.iMaxUp = 3250;
+    s.iMaxDn = 3250;
+    s.homeSensAuto = true;
     SettingsRules::recomputeHomeTime(s);
     return s;
 }
 
-// 위치 0.0초의 실제 자리 = 센서 지점 − 되내림
-static const double ZERO_U = 1000 - 150;
+static const cs_t HOME = 850;
 
 static void test_settings_basics() {
     WindowSettings s = baseSettings();
-    CHECK(s.homeTime == 850);
-    CHECK(SettingsRules::maxPos(s, true) == 19150);
-    CHECK(SettingsRules::maxPos(s, false) == 19150);   // 센서가 죽어도 같은 자리
-    CHECK(SettingsRules::validWindow(s, true));
-    // 위치 ↔ 백분율 (스펙 3절): 1.0 + pos × 98.9 ÷ 최대 위치
-    CHECK(SettingsRules::pctFromPos(0, 19150) == 10);
-    CHECK(SettingsRules::pctFromPos(19150, 19150) == 999);
-    CHECK(SettingsRules::pctFromPos(25000, 19150) == 999);
-    CHECK(SettingsRules::pctFromPos(9000, 18300) == 496);      // 49.6
-    CHECK(SettingsRules::posFromPct(10, 19150) == 0);
-    CHECK(SettingsRules::posFromPct(999, 19150) == 19150);
-    CHECK(SettingsRules::pctFromPos(SettingsRules::posFromPct(496, 18300), 18300) == 496);
-    CHECK(SettingsRules::limitPos(s, 19150) == 19150);         // 99.9는 리밋 없음
+    CHECK(s.homeTime == HOME);
+    CHECK(SettingsRules::sensorPoint(s) == 1000);
+    CHECK(SettingsRules::validWindow(s));
+    // 위치 ↔ 백분율 (스펙 3절): 1.0 + (pos − home) × 98.9 ÷ (top − home)
+    CHECK(SettingsRules::pctFromPos(HOME, HOME, 20000) == 10);
+    CHECK(SettingsRules::pctFromPos(300, HOME, 20000) == 10);          // home 아래도 1.0
+    CHECK(SettingsRules::pctFromPos(20000, HOME, 20000) == 999);
+    CHECK(SettingsRules::pctFromPos(25000, HOME, 20000) == 999);
+    CHECK(SettingsRules::pctFromPos(8000, 2000, 15000) == 466);        // 46.6 (스펙 3절 예)
+    CHECK(SettingsRules::posFromPct(10, HOME, 20000) == HOME);
+    CHECK(SettingsRules::posFromPct(999, HOME, 20000) == 20000);
+    CHECK(SettingsRules::pctFromPos(SettingsRules::posFromPct(496, 0, 18300), 0, 18300) == 496);
+    CHECK(SettingsRules::limitPos(s, HOME, 20000) == 20000);           // 99.9는 리밋 없음
     s.limitPct = 5;
-    CHECK(!SettingsRules::validWindow(s, true));               // 1.0 아래
+    CHECK(!SettingsRules::validWindow(s));                             // 1.0 아래
     s.limitPct = 500;
-    CHECK(SettingsRules::validWindow(s, true));
-    s.maxRunS = 100;                                   // 상승 190초보다 짧음
-    CHECK(!SettingsRules::validWindow(s, true));
+    CHECK(SettingsRules::validWindow(s));
+    s.maxRunS = 190;                                                    // 상승 200초보다 짧음
+    CHECK(!SettingsRules::validWindow(s));
+    s.maxRunS = -1;
+    s.homeTime = 20000;                                                 // 원점 시간이 상승 시간 이상
+    CHECK(!SettingsRules::validWindow(s));
 }
 
-static void test_not_configured_rejects() {
-    // 300W: 원점 시간 기본값이 없으므로 빈 창은 겹침 하강이나 원점 시간을 넣기 전에는 움직이지 않는다
+static void test_defaults_50w() {
+    // 50W 빈 창: 상승/하강 150초, 원점 시간 20초, 최대 운전 전류 3A, 원점 센서 끔 (2026-11-22)
     Sim sim;
     WindowSettings s;
     SettingsRules::defaultsWindow(s);
-    sim.begin(s, Model::W300);
-    sim.move(1000);
-    sim.run(2000);
-    CHECK(sim.w.state() == WinState::IDLE);
-    CHECK(sim.w.posState() == PosState::UNKNOWN);
-    CHECK(!sim.w.configured());
-    WindowStatus st;
-    sim.w.fillStatus(st);
-    CHECK(st.defaults);
-    CHECK(st.maxPos == 150 + 30000);                 // 센서 판단 전: 되내림 지점 + 상승 300초
-    CHECK(st.overloadUpMa == 10000 && st.overloadDnMa == 10000);
-}
-
-static void test_empty_uses_model_defaults() {
-    // 50W 빈 창: 상승/하강 180초, 원점 시간 20초, 멈추는 전류 3A로 움직인다 (2026-11-22)
-    Sim sim;
-    WindowSettings s;
-    SettingsRules::defaultsWindow(s);
-    sim.p.stuck = 1;                                 // 원점 센서 없음
+    CHECK(!s.homeSensAuto);
     sim.p.u = 5000;
     sim.begin(s);
     CHECK(sim.w.configured());
     WindowStatus st;
     sim.w.fillStatus(st);
     CHECK(st.defaults);
-    CHECK(st.maxPos == 150 + 18000);                 // 센서 판단 전: 되내림 지점 + 상승 180초
+    CHECK(st.home == 2000 && st.maxPos == 15000 && st.limit == 15000);
     CHECK(st.overloadUpMa == 3000 && st.overloadDnMa == 3000);
-    sim.move(3000);
+    sim.move(6000);
     CHECK(sim.runUntil(WinState::HOMING, 3000));
     CHECK(sim.runUntilIdle(300000));
-    CHECK(sim.w.pos() == 3000);
+    CHECK(sim.w.pos() == 6000);
     CHECK(sim.w.posState() == PosState::VALID);
+    CHECK_NEAR(sim.p.u, 6000, 3);
+    // home 아래 목표는 home에서 멈춘다 (그 아래는 CLOSE)
+    sim.move(500);
+    CHECK(sim.runUntilIdle(300000));
+    CHECK(sim.w.pos() == 2000);
 
     // 값을 넣은 항목은 그 값을 쓰고, 모두 넣으면 기본값 표시가 꺼진다
     WindowSettings f = baseSettings();
@@ -182,11 +172,30 @@ static void test_empty_uses_model_defaults() {
     g.begin(f);
     g.w.fillStatus(st);
     CHECK(!st.defaults);
-    CHECK(st.overloadUpMa == 2500 * 13 / 10);
+    CHECK(st.overloadUpMa == 3250);                  // 최대 운전 전류를 넘으면 과부하 (배율 없음)
     f.iMaxDn = -1;                                   // 하나라도 비면 다시 기본값 표시
     g.w.settingsChanged(f, false, false);
     g.w.fillStatus(st);
     CHECK(st.defaults && st.overloadUpMa == 3250 && st.overloadDnMa == 3000);
+}
+
+static void test_defaults_300w() {
+    // 300W 빈 창: 상승/하강 300초, 원점 시간 0초(home = bottom), 최대 운전 전류 10A
+    Sim sim;
+    WindowSettings s;
+    SettingsRules::defaultsWindow(s);
+    sim.p.top = 30000;
+    sim.p.u = 7000;
+    sim.begin(s, Model::W300);
+    CHECK(sim.w.configured());
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.defaults && st.home == 0 && st.maxPos == 30000);
+    CHECK(st.overloadUpMa == 10000 && st.overloadDnMa == 10000);
+    sim.move(3000);
+    CHECK(sim.runUntilIdle(300000));
+    CHECK(sim.w.pos() == 3000);
+    CHECK_NEAR(sim.p.u, 3000, 3);
 }
 
 static void test_power_on_waits() {
@@ -209,18 +218,18 @@ static void test_homing_then_target_above() {
     CHECK(sim.w.state() == WinState::IDLE);
     CHECK(sim.w.posState() == PosState::VALID);
     CHECK(sim.w.pos() == 3000);
-    CHECK_NEAR(sim.p.u, ZERO_U + 3000, 3);
+    CHECK_NEAR(sim.p.u, 3000, 3);
 }
 
 static void test_homing_then_target_below_sensor_point() {
     Sim sim;
     sim.p.u = 500;                                      // 센서 아래 ("있음")
     sim.begin(baseSettings());
-    sim.move(0);
+    sim.move(0);                                        // home 아래는 home으로
     CHECK(sim.runUntilIdle(100000));
     CHECK(sim.w.posState() == PosState::VALID);
-    CHECK(sim.w.pos() == 0);
-    CHECK_NEAR(sim.p.u, ZERO_U, 3);
+    CHECK(sim.w.pos() == HOME);
+    CHECK_NEAR(sim.p.u, HOME, 3);
 }
 
 static void test_move_and_reverse_wait() {
@@ -246,27 +255,26 @@ static void test_move_and_reverse_wait() {
     CHECK(sim.w.state() == WinState::MOVING);
     CHECK(sim.runUntilIdle(100000));
     CHECK(sim.w.pos() == 4000);
-    CHECK_NEAR(sim.p.u, ZERO_U + 4000, 3);
+    CHECK_NEAR(sim.p.u, 4000, 3);
 }
 
 static void test_down_ratio() {
     Sim sim;
     WindowSettings s = baseSettings();
-    s.downTime = 15200;          // 내려갈 때 1.25배 빠름
+    s.downTime = 16000;          // 내려갈 때 1.25배 빠름
     SettingsRules::recomputeHomeTime(s);
-    sim.p.downSpeed = 19000.0 / 15200.0;
+    CHECK(s.homeTime == 1000 - 187);           // 되내림 150 × 20000/16000 = 187 (상승 기준)
+    sim.p.downSpeed = 20000.0 / 16000.0;
     sim.p.u = 3000;
     sim.begin(s);
-    cs_t sp = SettingsRules::sensorPoint(s);   // 150 × 19000/15200 = 187
-    CHECK(sp == 187);
+    CHECK(SettingsRules::sensorPoint(s) == 1000);
     sim.move(12000);
     CHECK(sim.runUntilIdle(300000));
-    double zero = 1000 - 150 * (19000.0 / 15200.0);
-    CHECK_NEAR(sim.p.u, zero + 12000, 4);
+    CHECK_NEAR(sim.p.u, 12000, 4);
     sim.move(2000);
     CHECK(sim.runUntilIdle(300000));
     CHECK(sim.w.pos() == 2000);
-    CHECK_NEAR(sim.p.u, zero + 2000, 15);
+    CHECK_NEAR(sim.p.u, 2000, 15);
 }
 
 static void test_close_and_reopen() {
@@ -285,7 +293,7 @@ static void test_close_and_reopen() {
     sim.move(1000);
     CHECK(sim.runUntilIdle(100000));
     CHECK(sim.w.pos() == 1000);
-    CHECK_NEAR(sim.p.u, ZERO_U + 1000, 3);
+    CHECK_NEAR(sim.p.u, 1000, 3);
 }
 
 static void test_close_when_unknown_and_already_closed() {
@@ -301,9 +309,9 @@ static void test_close_when_unknown_and_already_closed() {
 static void test_upper_limit() {
     Sim sim;
     WindowSettings s = baseSettings();
-    s.limitPct = 526;             // 52.6 → 약 100초
-    cs_t lim = SettingsRules::posFromPct(526, SettingsRules::maxPos(s, true));
-    CHECK_NEAR(lim, 10000, 20);
+    s.limitPct = 526;             // 52.6 → home + 51.6/98.9 × (top − home) ≈ 108.4초
+    cs_t lim = SettingsRules::posFromPct(526, HOME, 20000);
+    CHECK_NEAR(lim, 10841, 2);
     sim.p.u = 3000;
     sim.begin(s);
     sim.move(15000);              // 리밋으로 잘림
@@ -329,7 +337,7 @@ static void test_overload_backoff() {
     sim.move(18000);
     sim.run(5000);
     double before = sim.p.u;
-    sim.p.loadMa = 4000;          // 이물이 말려 전류가 오름 (기준 2.5A × 1.3)
+    sim.p.loadMa = 4000;          // 이물이 말려 전류가 오름 (4.4A > 최대 운전 전류 3.25A)
     CHECK(sim.runUntil(WinState::FAULT, 2000));
     WindowStatus st;
     sim.w.fillStatus(st);
@@ -387,22 +395,21 @@ static void test_limit_hit_fault_on_top() {
 static void test_timeout() {
     Sim sim;
     WindowSettings s = baseSettings();
-    s.maxRunS = 190;
+    s.maxRunS = 210;
     sim.p.top = 1e9;              // 내장 리밋이 고장 나 끝없이 올라감
     sim.p.u = 3000;
     sim.begin(s);
     sim.move(1000);
     CHECK(sim.runUntilIdle(100000));
     WindowSettings s2 = s;
-    s2.upTime = 90000;            // 시간 초과를 보려고 리밋을 크게
-    s2.totalUp = 91000;
+    s2.upTime = 90000;            // 시간 초과를 보려고 top을 크게
     sim.w.setSettings(s2);
     sim.move(80000);
-    CHECK(sim.runUntil(WinState::FAULT, 200000));
+    CHECK(sim.runUntil(WinState::FAULT, 300000));
     WindowStatus st;
     sim.w.fillStatus(st);
     CHECK(st.fault == Cause::TIMEOUT);
-    CHECK_NEAR(sim.now, 190000 + 30000, 40000);
+    CHECK_NEAR(sim.now, 210000 + 30000, 40000);
 }
 
 static void test_estop() {
@@ -442,13 +449,14 @@ static void test_stop_alert() {
     CHECK(sim.w.state() == WinState::IDLE);
     cs_t p = sim.w.pos();
     CHECK(p > 10000 && p < 15000);
-    CHECK_NEAR(sim.p.u, ZERO_U + p, 3);
+    CHECK_NEAR(sim.p.u, p, 3);
 }
 
 static void test_calibration_with_sensor() {
     Sim sim;
     WindowSettings s;
     SettingsRules::defaultsWindow(s);       // 비어 있는 창
+    s.homeSensAuto = true;
     sim.p.u = 6000;
     sim.begin(s);
     Job j = {};
@@ -459,14 +467,41 @@ static void test_calibration_with_sensor() {
     WindowStatus st;
     sim.w.fillStatus(st);
     CHECK(st.cal.phase == CalPhase::DONE);
-    CHECK_NEAR(st.cal.totalUp, 20000, 3);
-    CHECK_NEAR(st.cal.effUp, 19000, 3);
-    CHECK_NEAR(st.cal.effDown, 19000, 3);
-    CHECK_NEAR(st.cal.overlap, 1000, 3);
-    CHECK_NEAR(st.cal.iMaxUp, 2400, 50);
+    CHECK(st.cal.sensorMode);
+    CHECK_NEAR(st.cal.upTime, 20000, 3);     // bottom → top
+    CHECK_NEAR(st.cal.downTime, 20000, 3);   // top → bottom
+    CHECK_NEAR(st.cal.sensorRun, 1000, 3);   // bottom → 센서 지점
+    CHECK_NEAR(st.cal.iMaxUp, 2400 * 13 / 10, 70);   // 잰 값 × 1.3
     CHECK_NEAR(st.cal.iAvgUp, 2400, 50);
     CHECK(sim.w.posState() == PosState::CLOSED);
     CHECK(sim.p.u <= 0.01);
+    // 저장할 원점 시간 = 센서 지점 − 되내림
+    WindowSettings r = s;
+    r.upTime = st.cal.upTime; r.downTime = st.cal.downTime; r.sensorRun = st.cal.sensorRun;
+    SettingsRules::recomputeHomeTime(r);
+    CHECK_NEAR(r.homeTime, HOME, 3);
+}
+
+static void test_calibration_without_sensor() {
+    // 기본(원점 센서 끔): bottom → top, top → bottom, 전류만 잰다
+    Sim sim;
+    WindowSettings s;
+    SettingsRules::defaultsWindow(s);
+    sim.p.stuck = 1;
+    sim.p.u = 6000;
+    sim.begin(s);
+    Job j = {};
+    j.type = JobType::CALIBRATE;
+    CHECK(sim.w.submit(j));
+    for (int i = 0; i < 100000 && (i < 10 || sim.w.state() == WinState::CALIBRATING
+                                   || sim.w.state() == WinState::REVERSE_WAIT); i++) sim.step();
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.cal.phase == CalPhase::DONE);
+    CHECK(!st.cal.sensorMode);
+    CHECK(st.cal.sensorRun == CS_EMPTY);
+    CHECK_NEAR(st.cal.upTime, 20000, 3);
+    CHECK_NEAR(st.cal.downTime, 20000, 3);
 }
 
 static void test_calibration_refused_with_limit() {
@@ -518,7 +553,7 @@ static void test_sensor_dies_while_moving() {
     CHECK(sim.w.popEvent(c) && c == Cause::HOME_SENSOR);
     CHECK(sim.runUntilIdle(100000));
     CHECK(sim.w.pos() == 14000);
-    CHECK_NEAR(sim.p.u, ZERO_U + 14000, 3);
+    CHECK_NEAR(sim.p.u, 14000, 3);
 
     // 센서 없이 닫고 다시 열기: 원점 시간으로 0.0초를 잡음
     sim.close();
@@ -527,7 +562,7 @@ static void test_sensor_dies_while_moving() {
     sim.move(2000);
     CHECK(sim.runUntilIdle(100000));
     CHECK(sim.w.pos() == 2000);
-    CHECK_NEAR(sim.p.u, ZERO_U + 2000, 3);
+    CHECK_NEAR(sim.p.u, 2000, 3);
 
     // 확인하면 센서 판단을 처음으로. 여전히 ON이면 위치 확인에서 다시 에러
     sim.w.recheckSensor();
@@ -562,23 +597,7 @@ static void test_sensor_wire_broken_found_at_bottom() {
     sim.move(3000);                              // 센서 없이 원점 시간으로
     CHECK(sim.runUntilIdle(100000));
     CHECK(sim.w.pos() == 3000);
-    CHECK_NEAR(sim.p.u, ZERO_U + 3000, 3);
-}
-
-static void test_sensor_fails_without_home_time() {
-    Sim sim;
-    WindowSettings s = baseSettings();
-    s.homeTime = CS_EMPTY;                       // 300W는 원점 시간 기본값이 없다
-    sim.p.u = 3000;
-    sim.begin(s, Model::W300);
-    sim.move(10000);
-    CHECK(sim.runUntilIdle(200000));
-    sim.p.stuck = 2;
-    sim.run(200);
-    CHECK(sim.w.state() == WinState::FAULT);
-    WindowStatus st;
-    sim.w.fillStatus(st);
-    CHECK(st.fault == Cause::SENSOR);
+    CHECK_NEAR(sim.p.u, 3000, 3);
 }
 
 static void test_no_sensor_decided_at_bottom() {
@@ -591,7 +610,7 @@ static void test_no_sensor_decided_at_bottom() {
     CHECK(sim.runUntil(WinState::HOMING, 3000));
     CHECK(sim.runUntilIdle(300000));
     CHECK(sim.w.pos() == 3000);
-    CHECK_NEAR(sim.p.u, ZERO_U + 3000, 3);
+    CHECK_NEAR(sim.p.u, 3000, 3);
     WindowStatus st;
     sim.w.fillStatus(st);
     CHECK(st.sensorAbsent && !st.sensorError && !st.sensorActive);
@@ -611,17 +630,6 @@ static void test_no_sensor_decided_at_bottom() {
     CHECK(st.sensorError);
     CHECK(h.w.pos() == 3000);
 
-    // 원점 시간도 없으면 하한에서 CLOSE로 머문다 (300W: 원점 시간 기본값이 없음)
-    Sim n;
-    WindowSettings s = baseSettings();
-    s.homeTime = CS_EMPTY;
-    n.p.u = 7000;
-    n.p.stuck = 1;
-    n.begin(s, Model::W300);
-    n.move(3000);
-    CHECK(n.runUntilIdle(300000));
-    CHECK(n.w.state() == WinState::IDLE && n.w.posState() == PosState::CLOSED);
-    CHECK(!n.w.configured());
 }
 
 static void test_sensorless_homing() {
@@ -634,32 +642,42 @@ static void test_sensorless_homing() {
     CHECK(sim.runUntil(WinState::HOMING, 3000));
     CHECK(sim.runUntilIdle(300000));
     CHECK(sim.w.pos() == 3000);
-    CHECK_NEAR(sim.p.u, ZERO_U + 3000, 3);
+    CHECK_NEAR(sim.p.u, 3000, 3);
 }
 
-static void test_rehome_count_and_temp_defer() {
+static void test_no_rehome() {
+    // 재원점 기동 횟수 규칙은 없앴다: 여러 번 움직여도 원점을 다시 잡지 않는다 (2026-11-22)
+    Sim sim;
+    sim.p.u = 3000;
+    sim.begin(baseSettings());
+    sim.move(10000);
+    CHECK(sim.runUntilIdle(200000));
+    cs_t t[] = {11000, 12000, 13000, 14000, 15000, 9000};
+    for (int i = 0; i < 6; i++) {
+        sim.move(t[i]);
+        sim.step();
+        CHECK(sim.w.state() != WinState::HOMING);
+        CHECK(sim.runUntilIdle(100000));
+        CHECK(sim.w.pos() == t[i]);
+    }
+}
+
+static void test_limit_backup_from_bottom() {
+    // 리밋 세 번째 겹: bottom에서 연속으로 올린 시간이 리밋 위치를 넘으면 끊는다
     Sim sim;
     WindowSettings s = baseSettings();
-    s.rehome = 3;
-    sim.p.u = 3000;
+    s.homeSensAuto = false;
+    s.limitPct = 526;
+    cs_t lim = SettingsRules::posFromPct(526, HOME, 20000);
+    sim.p.u = 0;
     sim.begin(s);
-    sim.move(10000);                                  // 원점 잡기로 센서를 지남
-    CHECK(sim.runUntilIdle(200000));
-    // 온도제어 이동 네 번: 센서를 지나지 않음
-    cs_t t[] = {11000, 12000, 13000, 14000, 15000};
-    for (int i = 0; i < 5; i++) {
-        sim.move(t[i], JobSource::TEMP_CONTROL);
-        sim.step();
-        CHECK(sim.w.state() != WinState::HOMING);     // 온도제어 이동은 미룸
-        CHECK(sim.runUntilIdle(100000));
-    }
-    // 엔코더 이동이면 다시 잡음
-    sim.move(9000, JobSource::ENCODER);
-    sim.run(20);
-    CHECK(sim.w.state() == WinState::HOMING || sim.w.state() == WinState::REVERSE_WAIT);
+    sim.close();
+    CHECK(sim.runUntilIdle(10000));
+    CHECK(sim.w.posState() == PosState::CLOSED);
+    sim.move(15000);
     CHECK(sim.runUntilIdle(300000));
-    CHECK(sim.w.pos() == 9000);
-    CHECK_NEAR(sim.p.u, ZERO_U + 9000, 3);
+    CHECK(sim.w.state() == WinState::LIMIT);
+    CHECK_NEAR(sim.p.u, lim, 3);
 }
 
 static void test_new_target_same_direction() {
@@ -687,7 +705,7 @@ static void test_close_on_unknown_then_target() {
     sim.move(4000);                                    // 위치를 모르면 닫은 뒤 그 목표로
     CHECK(sim.runUntilIdle(300000));
     CHECK(sim.w.pos() == 4000);
-    CHECK_NEAR(sim.p.u, ZERO_U + 4000, 3);
+    CHECK_NEAR(sim.p.u, 4000, 3);
 }
 
 // ------------------------------------------------------------
@@ -760,8 +778,8 @@ static void test_current_monitor() {
 
 int main() {
     RUN(test_settings_basics);
-    RUN(test_not_configured_rejects);
-    RUN(test_empty_uses_model_defaults);
+    RUN(test_defaults_50w);
+    RUN(test_defaults_300w);
     RUN(test_power_on_waits);
     RUN(test_homing_then_target_above);
     RUN(test_homing_then_target_below_sensor_point);
@@ -777,14 +795,15 @@ int main() {
     RUN(test_estop);
     RUN(test_stop_alert);
     RUN(test_calibration_with_sensor);
+    RUN(test_calibration_without_sensor);
     RUN(test_calibration_refused_with_limit);
     RUN(test_calibration_stopped);
     RUN(test_sensor_dies_while_moving);
     RUN(test_sensor_wire_broken_found_at_bottom);
-    RUN(test_sensor_fails_without_home_time);
     RUN(test_no_sensor_decided_at_bottom);
     RUN(test_sensorless_homing);
-    RUN(test_rehome_count_and_temp_defer);
+    RUN(test_no_rehome);
+    RUN(test_limit_backup_from_bottom);
     RUN(test_new_target_same_direction);
     RUN(test_close_on_unknown_then_target);
     RUN(test_relay_selftest_and_engage);

@@ -111,22 +111,24 @@ uint8_t TempControl::tick(uint32_t now, bool valid, int16_t temp, bool paused,
         bool make = false;
 
         if (v[i].posState == PosState::CLOSED) {
-            // CLOSE에서는 불감대 안으로 들어오면 0.0초로 (단계 횟수에 넣지 않음)
-            if (_pred >= lo) { j.type = JobType::MOVE; j.target = 0; make = true; }
+            // CLOSE에서는 불감대 안으로 들어오면 home으로 (단계 횟수에 넣지 않음)
+            if (_pred >= lo) { j.type = JobType::MOVE; j.target = v[i].home; make = true; }
         } else if (v[i].posState == PosState::UNKNOWN) {
-            if (dir > 0) { j.type = JobType::MOVE; j.target = 0; make = true; }
+            if (dir > 0) { j.type = JobType::MOVE; j.target = v[i].home; make = true; }
             else if (dir < 0) { j.type = JobType::CLOSE; make = true; }
         } else if (dir > 0) {
             cs_t t = roundStep(v[i].pos + size);
             if (t > v[i].limit) t = v[i].limit;
             if (t > v[i].pos) { j.type = JobType::MOVE; j.target = t; make = true; counted = true; }
         } else if (dir < 0) {
-            if (v[i].pos <= 0) {
-                j.type = JobType::CLOSE; make = true;           // 0.0초에서 다음 주기에도 낮으면 CLOSE
+            cs_t h = v[i].home;
+            if (v[i].pos <= h) {
+                j.type = JobType::CLOSE; make = true;           // home에서 다음 주기에도 낮으면 CLOSE
             } else {
                 cs_t t = v[i].pos - size;
-                t = t <= 0 ? 0 : roundStep(t);
-                if (t >= v[i].pos) t = v[i].pos - CS_STEP < 0 ? 0 : v[i].pos - CS_STEP;
+                t = t <= h ? h : roundStep(t);
+                if (t < h) t = h;
+                if (t >= v[i].pos) t = v[i].pos - CS_STEP < h ? h : v[i].pos - CS_STEP;
                 j.type = JobType::MOVE; j.target = t; make = true; counted = true;
             }
         }

@@ -5,25 +5,19 @@
 //  설정에서 나오는 값
 // ============================================================
 cs_t Window::sensorPoint() const { return SettingsRules::sensorPoint(_s); }
-cs_t Window::maxPos() const      { return SettingsRules::maxPos(_s, sensorActive()); }
-cs_t Window::limitPos() const    { return SettingsRules::limitPos(_s, maxPos()); }
+cs_t Window::maxPos() const      { return _s.upTime; }
+cs_t Window::limitPos() const    { return SettingsRules::limitPos(_s, _s.homeTime, _s.upTime); }
 
 uint32_t Window::maxRunMs() const {
     if (_s.maxRunS > 0) return (uint32_t)_s.maxRunS * 1000;
-    if (_s.totalUp > 0) return (uint32_t)_s.totalUp * 12;      // 전체 상승 시간(cs) × 10ms × 1.2
-    // 측정 전: (유효 상승 + 원점 시간) × 1.2. 기본값을 쓰면 여기로 온다
-    if (_s.upTime > 0) return (uint32_t)(_s.upTime + (_s.homeTime > 0 ? _s.homeTime : 0)) * 12;
+    if (_s.upTime > 0) return (uint32_t)_s.upTime * 12;        // 상승 시간(cs) × 10ms × 1.2
     return 0;
 }
 
+// 0.3초 평균이 최대 운전 전류를 넘으면 과부하 (배율 없음, 스펙 6절 2026-11-22)
 int32_t Window::overloadMa(int8_t dir) const {
     int32_t base = dir > 0 ? _s.iMaxUp : _s.iMaxDn;
-    int32_t fixed = fixedLimitMa();
-    if (base < 0) {                                              // 비어 있으면 모델 기본 멈춤 전류
-        int32_t d = SettingsRules::defaultTripMa(_model);
-        return d < fixed ? d : fixed;
-    }
-    return base * _s.ovlRate / 10;
+    return base > 0 ? base : fixedLimitMa();
 }
 
 void Window::useSettings(const WindowSettings& s) {
@@ -32,16 +26,11 @@ void Window::useSettings(const WindowSettings& s) {
     _defaults = SettingsRules::fillModelDefaults(_s, _model);
 }
 
-// 기본값이 "없음"인 항목이 비어 있으면 이동을 받지 않는다 (스펙 8절).
-// 상승/하강 시간, 원점 시간(50W), 최대 운전 전류는 비어 있으면 모델 기본값을 쓴다 (useSettings).
-// 센서가 없거나 끈 창은 겹침 하강 시간 대신 원점 시간이 있어야 한다.
+// 빈 모터 정보는 모델 기본값으로 채우므로(useSettings) 범위만 맞으면 이동을 받는다 (스펙 8절)
 bool Window::configured() const {
-    if (_s.upTime < 0 || _s.downTime < 0) return false;
-    if (maxRunMs() == 0) return false;
-    if (!sensorActive()) return _s.homeTime >= 0;
-    // 센서 유무가 아직 정해지지 않았으면 어느 쪽 설정이든 갖춰져 있으면 받는다
-    if (_known == Known::UNDECIDED) return _s.overlap >= 0 || _s.homeTime >= 0;
-    return _s.overlap >= 0;
+    if (_s.upTime <= 0 || _s.downTime <= 0) return false;
+    if (_s.homeTime < 0 || _s.homeTime >= _s.upTime) return false;
+    return maxRunMs() > 0;
 }
 
 // ============================================================
@@ -91,7 +80,6 @@ bool Window::submit(const Job& job) {
     if (job.type == JobType::CALIBRATE) {
         if (_state != WinState::IDLE && _state != WinState::LIMIT) return false;
         if (_s.limitPct < PCT_MAX) return false;                 // 리밋을 먼저 풀어야 함
-        if (!sensorActive() && _s.homeTime < 0) return false;    // 센서 없는 측정은 원점 시간이 필요
     } else if (job.type == JobType::MOVE || job.type == JobType::CLOSE || job.type == JobType::HOME) {
         if (!configured()) return false;
     } else {
@@ -227,7 +215,7 @@ WindowOutputs Window::tick(const WindowInputs& in) {
     case WinState::ESTOP:        break;
     case WinState::HOMING:       tickHoming(in); break;
     case WinState::MOVING:       tickMoving(in); break;
-    case WinState::CLOSING:      tickClosing(in); break;
+    case WinState::CLOSING:      break;   // 전류가 끊길 때까지 내린다 (onCurrentStopped)
     case WinState::REVERSE_WAIT: tickReverseWait(in); break;
     case WinState::CALIBRATING:  tickCalibrating(in); break;
     case WinState::FAULT:        tickFault(in); break;
@@ -265,7 +253,6 @@ void Window::startDrive(int8_t dir, uint32_t now) {
     _upPassActive = false;
     _moveMax = 0;
     _mon.reset();
-    if (_state != WinState::CALIBRATING && _startsWithoutPass < 0xFFFF) _startsWithoutPass++;
 }
 
 void Window::cut(uint32_t now) {
@@ -317,13 +304,7 @@ void Window::startState(WinState st, int8_t dir, uint32_t now) {
 }
 
 bool Window::needHoming() const {
-    if (_posState == PosState::UNKNOWN) return true;
-    if (_posState == PosState::CLOSED) return false;
-    // 센서를 지나지 않은 채 기동한 횟수가 설정값을 넘으면 원점을 다시 잡는다.
-    // 온도제어에서 온 이동은 0.0초나 CLOSE로 내려가는 이동 때까지 미룬다.
-    if (!sensorActive() || _s.rehome == 0) return false;
-    if (_startsWithoutPass <= _s.rehome) return false;
-    return _goalSource != JobSource::TEMP_CONTROL || _target == 0;
+    return _posState == PosState::UNKNOWN;      // 재원점 기동 횟수 규칙은 없앴다 (2026-11-22)
 }
 
 void Window::startHoming(uint32_t now) {
@@ -338,7 +319,6 @@ void Window::startHoming(uint32_t now) {
 }
 
 void Window::beginGoal(uint32_t now) {
-    _closeSensorSeen = false;
     switch (_goal) {
     case Goal::NONE:
         settleIdle();
@@ -348,21 +328,21 @@ void Window::beginGoal(uint32_t now) {
         startState(WinState::CLOSING, -1, now);
         return;
     case Goal::TARGET:
-        // 하한에서 센서 "없음"으로 정해졌는데 원점 시간이 없으면 CLOSE 외에는 가지 않는다
         if (!configured()) { _goal = Goal::NONE; settleIdle(); return; }
         if (needHoming()) { startHoming(now); return; }
         if (_posState == PosState::CLOSED) {
             if (sensorActive()) {
-                // 하한에서 올라가며 센서 지점을 잡고 그대로 목표로 간다
+                // bottom에서 올라가며 센서 지점을 잡고 그대로 목표로 간다
                 _hPhase = HomePhase::UP;
                 _phaseMs = now;
                 startState(WinState::HOMING, +1, now);
             } else {
-                // 센서 없음: 원점 시간만큼 올라간 자리가 0.0초
-                _pos = -_s.homeTime;
+                // 센서 없음: bottom(0.0초)에서 올라간다. 원점 시간만큼 올라간 자리가 home
+                _pos = 0;
                 _acc = 0;
                 _posState = PosState::VALID;
                 startState(WinState::MOVING, +1, now);
+                if (_state == WinState::MOVING) startUpPass(0);
             }
             return;
         }
@@ -396,11 +376,11 @@ void Window::applyPending(uint32_t now) {
     cs_t t = j.target;
     if (j.type == JobType::HOME) {
         _posState = PosState::UNKNOWN;
-        t = 0;
+        t = _s.homeTime;
     }
     if (g == Goal::TARGET) {
-        // 목표는 받을 때 상한 리밋으로 자른다
-        if (t < 0) t = 0;
+        // 목표는 home 아래로 내려가지 않고(그 아래는 CLOSE), 받을 때 상한 리밋으로 자른다
+        if (t < _s.homeTime) t = _s.homeTime;
         if (t > limitPos()) t = limitPos();
     }
     _goalSource = j.source;
@@ -422,7 +402,7 @@ void Window::applyPending(uint32_t now) {
     case WinState::MOVING:
         if (g == Goal::CLOSE) {
             _goal = Goal::CLOSE;
-            if (_dir < 0) { _state = WinState::CLOSING; _closeSensorSeen = false; }
+            if (_dir < 0) _state = WinState::CLOSING;
             else goReverseWait(WinState::CLOSING, -1, now);
         } else {
             _goal = Goal::TARGET;
@@ -437,7 +417,7 @@ void Window::applyPending(uint32_t now) {
     case WinState::HOMING:
         if (g == Goal::CLOSE) {
             _goal = Goal::CLOSE;
-            if (_dir < 0) { _state = WinState::CLOSING; _closeSensorSeen = false; }
+            if (_dir < 0) _state = WinState::CLOSING;
             else goReverseWait(WinState::CLOSING, -1, now);
         } else {
             _goal = Goal::TARGET;
@@ -485,9 +465,7 @@ void Window::handleSensor(const WindowInputs& in) {
             _acc = 0;
             _posState = PosState::VALID;
         }
-        _startsWithoutPass = 0;
-        _upPassActive = true;
-        _upPassStart = runCs();
+        startUpPass(sensorPoint());
     }
     // 위치 확인: 센서 지점보다 5초 넘게 위에 있는데 ON
     if (_known == Known::PRESENT && _state != WinState::CALIBRATING && _posState == PosState::VALID
@@ -501,10 +479,6 @@ void Window::sensorFailure(uint32_t now) {
     _sensorErrMode = true;            // 설정은 바꾸지 않고 센서 없는 것처럼 동작한다
     pushEvent(Cause::HOME_SENSOR);
 
-    if (_s.homeTime < 0) {            // 원점 시간이 없으면 넘기지 못한다
-        raiseFault(Cause::SENSOR, now);
-        return;
-    }
     if (_state == WinState::CALIBRATING) {
         calFail(Cause::SENSOR, now);
         return;
@@ -591,23 +565,15 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
             break;
         case CalPhase::UP:
             if (_calSensor && !_calMark) { calFail(Cause::SENSOR, now); return; }
-            _cal.totalUp = run;
-            _cal.effUp = _calSensor ? run - _calMarkRun : run - _s.homeTime;
-            _cal.iMaxUp = imax;
+            _cal.upTime = run;                                   // bottom → top
+            _cal.sensorRun = _calSensor ? _calMarkRun : CS_EMPTY; // bottom → 센서 지점
+            _cal.iMaxUp = imax * CAL_IMAX_RATE_X10 / 10;          // 잰 값 × 1.3을 저장할 값으로
             _cal.iAvgUp = iavg;
             _cal.phase = CalPhase::WAIT_2;
             break;
         case CalPhase::DOWN:
-            if (_calSensor && !_calMark) { calFail(Cause::SENSOR, now); return; }
-            _cal.totalDown = run;
-            if (_calSensor) {
-                _cal.effDown = _calMarkRun;
-                _cal.overlap = run - _calMarkRun;
-            } else {
-                _cal.effDown = run - _s.homeTime;
-                _cal.overlap = CS_EMPTY;
-            }
-            _cal.iMaxDn = imax;
+            _cal.downTime = run;                                 // top → bottom
+            _cal.iMaxDn = imax * CAL_IMAX_RATE_X10 / 10;
             _cal.iAvgDn = iavg;
             _posState = PosState::CLOSED;
             _pos = 0;
@@ -644,19 +610,15 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
             if (sensorActive()) {
                 _hPhase = HomePhase::UP;
                 goReverseWait(WinState::HOMING, +1, now);
-            } else if (_s.homeTime < 0) {
-                _goal = Goal::NONE;            // 원점 시간이 없어 CLOSE에 머문다
-                settleIdle();
             } else {
-                _pos = -_s.homeTime;
-                _posState = PosState::VALID;
+                // bottom에서 1초 쉬고 올라간다 (닫힘에서 목표로 가는 것과 같다)
                 goReverseWait(WinState::MOVING, +1, now);
             }
             return;
         }
         raiseFault(Cause::LIMIT_HIT, now);
     } else {
-        // 상한에서 전류가 끊김: 최대 위치로 고쳐 쓴다
+        // 상한에서 전류가 끊김: top으로 고쳐 쓴다
         if (_posState == PosState::VALID) _pos = maxPos();
         raiseFault(Cause::LIMIT_HIT, now);
     }
@@ -668,7 +630,6 @@ void Window::calAtBottom(SensorState sensor, uint32_t now) {
         decideAbsentAtBottom(now);
         _calSensor = false;            // 센서 없는 측정으로 이어간다
         _cal.sensorMode = false;
-        if (_s.homeTime < 0) { calFail(Cause::SENSOR, now); return; }
     }
     _cal.phase = CalPhase::WAIT_1;
 }
@@ -738,13 +699,9 @@ void Window::tickHoming(const WindowInputs& in) {
             break;
         }
         if (_waitRelay || _dir == 0) break;
-        uint32_t limitMs;
-        if (_s.overlap >= 0) {
-            limitMs = (uint32_t)(_s.overlap + _s.backoff) * 10 * 2 + 2 * HOME_EXTRA_DOWN_MS + 5000;
-        } else {
-            limitMs = maxRunMs() ? maxRunMs() : MAX_RUN_FALLBACK_MS;
-        }
-        if (now - _driveStartMs > limitMs) raiseFault(Cause::SENSOR, now);   // 제한 시간 안에 전환이 없음
+        // bottom에서 센서 지점까지 + 여유 안에 전환이 없으면 센서 이상
+        uint32_t limitMs = (uint32_t)sensorPoint() * 10 * 2 + 2 * HOME_EXTRA_DOWN_MS + 5000;
+        if (now - _driveStartMs > limitMs) raiseFault(Cause::SENSOR, now);
         break;
     }
     case HomePhase::NOSENSOR_DOWN:
@@ -757,9 +714,9 @@ void Window::tickMoving(const WindowInputs& in) {
     if (_dir > 0 && !_waitRelay) {
         // 상한 리밋: 현재 위치가 리밋에 닿으면 끊는다
         bool hit = limitEnabled() && _pos >= limitPos();
-        // 센서를 지난 뒤 연속으로 올린 시간이 리밋 값을 넘으면 끊는다
+        // bottom이나 센서 지점에서 연속으로 올린 시간이 리밋 위치를 넘으면 끊는다
         if (!hit && _upPassActive && limitEnabled()
-            && runCs() - _upPassStart > limitPos() - sensorPoint() + LIMIT_BACKUP_MARGIN) {
+            && runCs() - _upPassStart > limitPos() - _upPassBase + LIMIT_BACKUP_MARGIN) {
             hit = true;
         }
         if (hit) {
@@ -775,23 +732,6 @@ void Window::tickMoving(const WindowInputs& in) {
         cut(now);
         _goal = Goal::NONE;
         settleIdle();
-    }
-}
-
-void Window::tickClosing(const WindowInputs& in) {
-    if (_waitRelay || _dir == 0) return;
-    if (!sensorActive() || _s.overlap < 0) return;
-    // 센서가 "있음"이 된 뒤 겹침 하강 시간에 여유를 더한 시간이 지나도 전류가 끊기지 않으면 그 자리에서 끊는다
-    if (!_closeSensorSeen && in.sensor == SensorState::PRESENT) {
-        _closeSensorSeen = true;
-        _closeSensorRun = runCs();
-    }
-    if (_closeSensorSeen && runCs() - _closeSensorRun > _s.overlap + CLOSE_MARGIN) {
-        cut(in.now);
-        _posState = PosState::CLOSED;
-        _pos = 0;
-        if (_goal == Goal::CLOSE) { _goal = Goal::NONE; settleIdle(); }
-        else beginGoal(in.now);
     }
 }
 
@@ -893,6 +833,7 @@ void Window::fillStatus(WindowStatus& st) const {
     st.sensorActive = sensorActive();
     st.sensorError = _sensorErrMode && _s.homeSensAuto;
     st.sensor = _lastSensor;
+    st.home = _s.homeTime;
     st.maxPos = maxPos();
     st.limit = limitPos();
     st.currentMa = _currentMa;

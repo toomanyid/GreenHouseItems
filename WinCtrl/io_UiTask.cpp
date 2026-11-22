@@ -21,9 +21,7 @@ enum Fmt_ : uint8_t {
     F_TIME,      // 0.5초 단위 시간, 비어 있으면 ---.-s
     F_PCT,       // 위치 백분율, 99.9면 OFF (상한 리밋)
     F_AMPS,      // mA, 0.1A로 보임
-    F_RATE,      // 0.1배 "1.3x"
     F_MAXRUN,    // 초, -1이면 AUTO
-    F_COUNT,     // 횟수, 0이면 OFF
     F_SENS,      // AUTO/OFF + FOUND/NONE
     F_TEMP,      // 0.1도 "28.0C"
     F_SECS,      // 초 정수 "60s"
@@ -40,22 +38,22 @@ struct FieldDef {
     uint8_t     fmt;
 };
 
+// 창 설정 10개 (스펙 7절, 2026-11-22). 시간은 bottom 기준: UP bottom→top, DOWN top→bottom, HOME bottom→home
+const uint8_t CAL_PAGES = 6;    // 측정 결과 장 수
+
 enum WinField : uint8_t {
-    W_UP, W_DOWN, W_OVERLAP, W_BACKOFF, W_LIMIT, W_IMAXUP, W_IMAXDN, W_OVL,
-    W_MAXRUN, W_REHOME, W_HOMETIME, W_HOMESENS, W_LINK, W_COUNT
+    W_UP, W_DOWN, W_HOMETIME, W_BACKOFF, W_LIMIT, W_IMAXUP, W_IMAXDN,
+    W_MAXRUN, W_HOMESENS, W_LINK, W_COUNT
 };
 const FieldDef WIN_FIELDS[W_COUNT] = {
     { "UP TIME",   RANGE_TIME_MIN, RANGE_TIME_MAX, CS_STEP, F_TIME },
     { "DOWN TIME", RANGE_TIME_MIN, RANGE_TIME_MAX, CS_STEP, F_TIME },
-    { "OVERLAP",   0, RANGE_OVERLAP_MAX, CS_STEP, F_TIME },
+    { "HOME TIME", 0, RANGE_HOME_MAX, CS_STEP, F_TIME },
     { "BACKOFF",   0, RANGE_BACKOFF_MAX, CS_STEP, F_TIME },
     { "LIMIT",     PCT_MIN, PCT_MAX, PCT_STEP, F_PCT },
     { "I MAX UP",  RANGE_IMAX_MIN, RANGE_IMAX_MAX, 100, F_AMPS },
     { "I MAX DN",  RANGE_IMAX_MIN, RANGE_IMAX_MAX, 100, F_AMPS },
-    { "OVL RATE",  RANGE_OVL_MIN, RANGE_OVL_MAX, 1, F_RATE },
     { "MAX RUN",   RANGE_MAXRUN_MIN, RANGE_MAXRUN_MAX, 1, F_MAXRUN },
-    { "REHOME",    0, RANGE_REHOME_MAX, 1, F_COUNT },
-    { "HOME TIME", 0, RANGE_HOME_MAX, CS_STEP, F_TIME },
     { "HOME SENS", 0, 1, 1, F_SENS },
     { "LINK",      0, 1, 1, F_ONOFF },
 };
@@ -724,7 +722,7 @@ void Ui::commitPos(uint32_t now) {
     for (uint8_t w = 0; w < 2; w++) {
         if (!((_editMask >> w) & 1) || _edit[w] == _editBase[w]) continue;
         mask |= (uint8_t)(1 << w);
-        t[w] = _edit[w] == PCT_CLOSE ? -1 : SettingsRules::posFromPct(_edit[w], _st.win[w].maxPos);
+        t[w] = _edit[w] == PCT_CLOSE ? -1 : SettingsRules::posFromPct(_edit[w], _st.win[w].home, _st.win[w].maxPos);
     }
     _editPos = false;
     _editMask = 0;
@@ -991,15 +989,12 @@ int32_t Ui::getField(const Settings& s, uint8_t i) const {
         switch (i) {
         case W_UP: return w.upTime;
         case W_DOWN: return w.downTime;
-        case W_OVERLAP: return w.overlap;
+        case W_HOMETIME: return w.homeTime;
         case W_BACKOFF: return w.backoff;
         case W_LIMIT: return w.limitPct;
         case W_IMAXUP: return w.iMaxUp;
         case W_IMAXDN: return w.iMaxDn;
-        case W_OVL: return w.ovlRate;
         case W_MAXRUN: return w.maxRunS;
-        case W_REHOME: return w.rehome;
-        case W_HOMETIME: return w.homeTime;
         case W_HOMESENS: return w.homeSensAuto ? 1 : 0;
         default: return w.link ? 1 : 0;
         }
@@ -1030,15 +1025,12 @@ void Ui::setField(Settings& s, uint8_t i, int32_t v) const {
         switch (i) {
         case W_UP: w.upTime = v; break;
         case W_DOWN: w.downTime = v; break;
-        case W_OVERLAP: w.overlap = v; break;
+        case W_HOMETIME: w.homeTime = v; break;
         case W_BACKOFF: w.backoff = v; break;
         case W_LIMIT: w.limitPct = (pct_t)v; break;
         case W_IMAXUP: w.iMaxUp = v; break;
         case W_IMAXDN: w.iMaxDn = v; break;
-        case W_OVL: w.ovlRate = (uint8_t)v; break;
         case W_MAXRUN: w.maxRunS = (int16_t)v; break;
-        case W_REHOME: w.rehome = (uint8_t)v; break;
-        case W_HOMETIME: w.homeTime = v; break;
         case W_HOMESENS: w.homeSensAuto = v != 0; break;
         default: w.link = v != 0; break;
         }
@@ -1078,15 +1070,9 @@ void Ui::fmtField(char* out, uint8_t i, int32_t v) const {
         break;
     case F_AMPS:
         Fmt::amps(b, v); snprintf(out, 16, "%s", v < 0 ? "--.-A" : b); break;
-    case F_RATE:
-        snprintf(out, 16, "%ld.%ldx", (long)(v / 10), (long)(v % 10)); break;
     case F_MAXRUN:
         if (v < 0) strcpy(out, "AUTO");
         else snprintf(out, 16, "%lds", (long)v);
-        break;
-    case F_COUNT:
-        if (v == 0) strcpy(out, "OFF");
-        else snprintf(out, 16, "%ld", (long)v);
         break;
     case F_SENS: {
         const char* r;
@@ -1157,11 +1143,12 @@ void Ui::saveField(uint32_t now) {
     if (_list == ListKind::WIN) {
         uint8_t w = _listWin;
         bool active = sensorActive(w, tmp);
-        bool timeField = _idx == W_UP || _idx == W_DOWN || _idx == W_OVERLAP || _idx == W_BACKOFF
+        bool timeField = _idx == W_UP || _idx == W_DOWN || _idx == W_BACKOFF
                       || _idx == W_HOMETIME || _idx == W_HOMESENS;
-        // 센서가 있는 창은 되내림이 바뀌면 원점 시간을 다시 계산해 둔다 (스펙 10절)
-        if (active && (_idx == W_BACKOFF || _idx == W_UP || _idx == W_HOMESENS)) SettingsRules::recomputeHomeTime(tmp.win[w]);
-        if (!SettingsRules::validWindow(tmp.win[w], active)) {
+        // 센서를 켠 창은 되내림이 바뀌면 원점 시간을 다시 계산해 둔다 (스펙 10절)
+        if (active && (_idx == W_BACKOFF || _idx == W_UP || _idx == W_DOWN || _idx == W_HOMESENS))
+            SettingsRules::recomputeHomeTime(tmp.win[w]);
+        if (!SettingsRules::validWindow(tmp.win[w])) {
             _snd.play(Snd::ERROR_BEEP);
             message("NOT SAVED", "OUT OF RANGE", now, false, Level::EDIT);
             return;
@@ -1185,14 +1172,15 @@ void Ui::saveCalibration(uint32_t now) {
     uint8_t w = _calWin;
     Settings tmp = _s;
     WindowSettings& ws = tmp.win[w];
-    ws.upTime = _calRes.effUp;
-    ws.downTime = _calRes.effDown;
-    if (_calRes.sensorMode) ws.overlap = _calRes.overlap;
-    ws.totalUp = _calRes.totalUp;
-    ws.iMaxUp = _calRes.iMaxUp;
+    ws.upTime = _calRes.upTime;              // bottom → top
+    ws.downTime = _calRes.downTime;          // top → bottom
+    ws.iMaxUp = _calRes.iMaxUp;              // 잰 값 × 1.3
     ws.iMaxDn = _calRes.iMaxDn;
-    if (_calRes.sensorMode) SettingsRules::recomputeHomeTime(ws);
-    if (!SettingsRules::validWindow(ws, _calRes.sensorMode)) {
+    if (_calRes.sensorMode) {                // 센서로 잰 측정은 원점 시간을 계산해 넣는다
+        ws.sensorRun = _calRes.sensorRun;
+        SettingsRules::recomputeHomeTime(ws);
+    }
+    if (!SettingsRules::validWindow(ws)) {
         _snd.play(Snd::ERROR_BEEP);
         message("NOT SAVED", "OUT OF RANGE", now, true, Level::TOP);
         return;
@@ -1235,7 +1223,6 @@ void Ui::menuShort(uint32_t now) {
         const WindowSettings& ws = _s.win[w];
         if (ws.limitPct < PCT_MAX) { message("CALIBRATE", "LIMIT IS ON", now, false, Level::CAL_SELECT); break; }
         if (_st.win[w].state == WinState::FAULT) { message("CALIBRATE", "CLEAR FAULT", now, false, Level::CAL_SELECT); break; }
-        if (!sensorActive(w, _s) && ws.homeTime < 0) { message("CALIBRATE", "SET HOME TIME", now, false, Level::CAL_SELECT); break; }
         _lv = Level::CAL_CONFIRM;
         break;
     }
@@ -1306,7 +1293,7 @@ void Ui::menuSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t
         }
         case Level::CAL_RESULT: {
             int t = _page + d;
-            if (t < 0 || t > 6) { bumped = true; break; }
+            if (t < 0 || t > CAL_PAGES - 1) { bumped = true; break; }
             _page = (uint8_t)t; changed = true; break;
         }
         case Level::CAL_SAVE:
@@ -1423,21 +1410,27 @@ void Ui::drawMenu() {
         break;
     }
     case Level::CAL_RESULT: {
-        static const char* const NAMES[7] = { "EFF UP", "EFF DOWN", "OVERLAP", "TOTAL UP", "I MAX", "I AVG", "SAVE" };
+        // 상승, 하강, 원점(센서로 잰 측정만), 최대 운전 전류(잰 값 × 1.3), 평균 전류, 저장
+        static const char* const NAMES[CAL_PAGES] = { "UP TIME", "DOWN TIME", "HOME TIME", "I MAX", "I AVG", "SAVE" };
         char left[17];
         snprintf(left, sizeof(left), "W%u %s", (unsigned)(_calWin + 1), NAMES[_page]);
-        header(l0, left, (uint16_t)(_page + 1), 7);
+        header(l0, left, (uint16_t)(_page + 1), CAL_PAGES);
         char x[10], y[10];
         switch (_page) {
-        case 0: Fmt::secs2(b, _calRes.effUp); snprintf(l1, sizeof(l1), " %ss", b); break;
-        case 1: Fmt::secs2(b, _calRes.effDown); snprintf(l1, sizeof(l1), " %ss", b); break;
+        case 0: Fmt::secs2(b, _calRes.upTime); snprintf(l1, sizeof(l1), " %ss", b); break;
+        case 1: Fmt::secs2(b, _calRes.downTime); snprintf(l1, sizeof(l1), " %ss", b); break;
         case 2:
-            if (_calRes.sensorMode) { Fmt::secs2(b, _calRes.overlap); snprintf(l1, sizeof(l1), " %ss", b); }
-            else strcpy(l1, " NO SENSOR");
+            if (_calRes.sensorMode) {
+                WindowSettings t = _s.win[_calWin];
+                t.upTime = _calRes.upTime; t.downTime = _calRes.downTime; t.sensorRun = _calRes.sensorRun;
+                SettingsRules::recomputeHomeTime(t);
+                Fmt::secs2(b, t.homeTime); snprintf(l1, sizeof(l1), " %ss", b);
+            } else {
+                strcpy(l1, " NO SENSOR");
+            }
             break;
-        case 3: Fmt::secs2(b, _calRes.totalUp); snprintf(l1, sizeof(l1), " %ss", b); break;
-        case 4: Fmt::amps(x, _calRes.iMaxUp); Fmt::amps(y, _calRes.iMaxDn); snprintf(l1, sizeof(l1), "^%s v%s", x, y); break;
-        case 5: Fmt::amps(x, _calRes.iAvgUp); Fmt::amps(y, _calRes.iAvgDn); snprintf(l1, sizeof(l1), "^%s v%s", x, y); break;
+        case 3: Fmt::amps(x, _calRes.iMaxUp); Fmt::amps(y, _calRes.iMaxDn); snprintf(l1, sizeof(l1), "^%s v%s", x, y); break;
+        case 4: Fmt::amps(x, _calRes.iAvgUp); Fmt::amps(y, _calRes.iAvgDn); snprintf(l1, sizeof(l1), "^%s v%s", x, y); break;
         default: strcpy(l1, " PRESS TO SAVE"); break;
         }
         break;
