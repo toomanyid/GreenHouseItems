@@ -20,7 +20,7 @@ struct Plant {
     // 리밋 스위치 풀림 (releaseZone > 0일 때만): 리밋에 닿으면 그 끝에서 releaseZone(cs)만큼 떠날 때까지
     // 반대로 가는 전류는 다이오드를 거쳐 releaseMa로 낮고, 다시 리밋 쪽으로 가면 전류도 움직임도 없다
     double  releaseZone = 0;
-    int32_t releaseMa = 150;     // 전류 없음 경계(200mA)보다 낮게
+    int32_t releaseMa = 60;      // 전류 없음 경계(100mA)보다 낮게
     int8_t  latched = 0;         // -1 하한 리밋 눌림, +1 상한 리밋 눌림
 
     void step(int8_t dir, uint16_t duty, uint32_t dtMs) {
