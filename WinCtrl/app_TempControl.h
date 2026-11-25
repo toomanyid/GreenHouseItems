@@ -31,6 +31,11 @@ public:
 
     int16_t  predicted() const { return _pred; }
     int16_t  slope() const     { return _slope; }
+    // 다음 판단까지 남은 초 (마지막 tick 시각 기준, 화면 표시용)
+    uint16_t nextDecisionS() const {
+        uint32_t p = (uint32_t)_t.periodS * 1000, e = _nowMs - _lastDecisionMs;
+        return e >= p ? 0 : (uint16_t)((p - e + 999) / 1000);
+    }
     cs_t     stepSize() const;
 
 private:
@@ -43,6 +48,7 @@ private:
     uint16_t _logCount = 0;
     uint32_t _lastLogMs = 0;
     uint32_t _lastDecisionMs = 0;
+    uint32_t _nowMs = 0;
     bool     _wasValid = false;
     bool     _wasPaused = false;
     int16_t  _pred = 0;

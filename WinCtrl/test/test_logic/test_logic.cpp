@@ -107,7 +107,7 @@ static void test_format_big() {
     int8_t dec = Fmt::bigNumber(r0, r1, 287);
     // 2: " UR" / "LB ", 8: "LUR" / "LBR" (U 위아래, B 아래 가로획), 아랫줄 소수점과 소수 자리 반쪽 둘
     const char want0[10] = { ' ', Fmt::G_BOTH, Fmt::G_VR, Fmt::G_VL, Fmt::G_BOTH, Fmt::G_VR, ' ', ' ', ' ', 0 };
-    const char want1[10] = { Fmt::G_VL, Fmt::G_BOT, ' ', Fmt::G_VL, Fmt::G_BOT, Fmt::G_VR, Fmt::G_DOT,
+    const char want1[10] = { Fmt::G_VL, Fmt::G_BOT, ' ', Fmt::G_VL, Fmt::G_BOT, Fmt::G_VR, '.',
                              Fmt::G_DEC, (char)(Fmt::G_DEC + 1), 0 };
     CHECK(dec == 7);
     CHECK(std::memcmp(r0, want0, 9) == 0);
@@ -539,8 +539,21 @@ static void test_zigzag() {
     z.reset(); CHECK(zigRun(z, ok, 12, 1000, 50)); CHECK(!zigRun(z, three, 9, 2000, 50));
 }
 
+static void test_auto_state() {
+    CHECK(std::strcmp(Fmt::autoState(286, 280, 5), "OP") == 0);
+    CHECK(std::strcmp(Fmt::autoState(285, 280, 5), "HD") == 0);    // 경계는 그대로
+    CHECK(std::strcmp(Fmt::autoState(275, 280, 5), "HD") == 0);
+    CHECK(std::strcmp(Fmt::autoState(274, 280, 5), "CL") == 0);
+    char b[4] = {};
+    Fmt::waitSecs3(b, 8);    CHECK(std::memcmp(b, "  8", 3) == 0);
+    Fmt::waitSecs3(b, 45);   CHECK(std::memcmp(b, " 45", 3) == 0);
+    Fmt::waitSecs3(b, 600);  CHECK(std::memcmp(b, "600", 3) == 0);
+    Fmt::waitSecs3(b, 1200); CHECK(std::memcmp(b, "999", 3) == 0);
+}
+
 int main() {
     RUN(test_zigzag);
+    RUN(test_auto_state);
     RUN(test_format_values);
     RUN(test_format_small);
     RUN(test_format_big);

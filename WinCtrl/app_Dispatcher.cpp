@@ -199,6 +199,7 @@ void Dispatcher::fillStatus(Status& st) const {
     st.temp.temp = _tempValue;
     st.temp.predicted = _temp.predicted();
     st.temp.slope = _temp.slope();
+    st.temp.nextS = _temp.nextDecisionS();
     st.temp.paused = _menu || _manual;
     st.temp.manual = _manual;
     st.model = _model;

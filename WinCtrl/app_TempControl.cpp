@@ -61,6 +61,7 @@ int16_t TempControl::computeSlope() const {
 
 uint8_t TempControl::tick(uint32_t now, bool valid, int16_t temp, bool paused,
                           const WinView v[2], Job jobs[2]) {
+    _nowMs = now;
     if (!valid) {
         // 센서 값이 끊기면 온도제어를 멈추고 창은 그 자리에 둔다
         if (_wasValid) { resetStep(); _logCount = 0; }

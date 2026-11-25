@@ -159,6 +159,7 @@ struct TempStatus {
     int16_t  temp;         // 현재 온도 (0.1도)
     int16_t  predicted;    // 예측 온도
     int16_t  slope;        // 변화 속도 (분당 0.01도)
+    uint16_t nextS;        // 다음 판단까지 남은 초 (화면 표시용)
     bool     paused;       // 설정 메뉴나 수동 때문에 멈춤
     bool     manual;       // 수동 (위치 항목을 고름)
 };

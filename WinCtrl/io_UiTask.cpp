@@ -98,7 +98,7 @@ enum class ListKind : uint8_t { WIN, TEMP, SOUND };
 // 평소 화면에서 고른 항목이 곧 모드다. 온도는 자동, 나머지는 수동 (스펙 7절)
 enum class Item : uint8_t { TEMP, SYNC, W1, W2 };
 // 저장하는 값: 온도 0, 위치 동기 1. 개별 항목은 위치 동기로 돌아가므로 1로 저장
-const uint8_t SAVED_TEMP = 0, SAVED_SYNC = 1;
+const uint8_t SAVED_TEMP = 0, SAVED_SYNC = 1;   // SYNC = 개별 화면의 1+2(둘 다)
 
 enum class Glyphs : uint8_t { NONE, BIG, WIDE };
 
@@ -855,8 +855,8 @@ void Ui::drawMain() {
     bool homing = _st.win[0].state == WinState::HOMING || _st.win[1].state == WinState::HOMING;
     // 확인하지 않은 고장이나 에러, 원점 찾기는 작은 글씨 화면 (입력 중이면 입력 화면을 보인다)
     if (errorScreen() || (homing && !_editPos && !_editTemp)) drawSmall();
-    else if (_item == Item::TEMP || _item == Item::SYNC) drawBig();
-    else drawWide();
+    else if (_item == Item::TEMP) drawBig();
+    else drawWide();                // 1+2(둘 다), 1, 2는 모두 개별 화면 (2026-11-25, 큰 글씨 MAN 화면 없앰)
 }
 
 void Ui::drawSmall() {
@@ -880,56 +880,42 @@ void Ui::drawBig() {
     char r0[17], r1[17];
     memset(r0, ' ', 16); memset(r1, ' ', 16);
     r0[16] = 0; r1[16] = 0;
-    bool moving = anyMoving();
-    char s1 = Fmt::statusChar(_st.win[0]), s2 = Fmt::statusChar(_st.win[1]);
 
-    // 오른쪽 위: 현재 온도. 끊기면 --.-C
+    // 오른쪽 위: 현재 온도 25.5°C (10~15칸). 끊기면 --.-°C (2026-11-25, 전에는 25.5C)
     if (hasTemp()) {
         char t[8];
-        if (_st.temp.valid) { Fmt::temp4(t, _st.temp.temp); memcpy(r0 + 11, t, 4); r0[15] = 'C'; }
-        else memcpy(r0 + 11, "--.-C", 5);
+        if (_st.temp.valid) { Fmt::temp4(t, _st.temp.temp); memcpy(r0 + 10, t, 4); }
+        else memcpy(r0 + 10, "--.-", 4);
+        r0[14] = Fmt::G_DEGREE;
+        r0[15] = 'C';
     }
 
-    if (_item == Item::TEMP) {
+    {   // 큰 글씨 화면은 온도(자동)만 쓴다
         bigDecimal(Fmt::bigNumber(r0, r1, _editTemp ? _editSetT : _s.temp.setT));
-        r0[Fmt::BIG_UNIT_COL] = Fmt::G_DEGREE;      // 설정 온도
-        if (moving) { r1[12] = '1'; r1[13] = s1; r1[14] = '2'; r1[15] = s2; }
-        else memcpy(r1 + 11, "AUTO", 4);             // MAN과 같은 자리 (2026-11-25, 전에는 SET)
-    } else {
-        // 위치 동기: 낮은 쪽 창의 값. 두 창이 다르면 *
-        uint8_t mask = _editPos ? _editMask : syncMask();
-        if (!mask) mask = 3;
-        pct_t v[2];
-        for (uint8_t w = 0; w < 2; w++) v[w] = _editPos ? _edit[w] : Fmt::winPct(_st.win[w]);
-        pct_t low = PCT_MAX + 1;
-        bool unknown = false;
-        for (uint8_t w = 0; w < 2; w++) {
-            if (!((mask >> w) & 1)) continue;
-            if (v[w] < 0) unknown = true;
-            else if (v[w] < low) low = v[w];
-        }
-        if (unknown) low = PCT_UNKNOWN;
-        bool differ = mask == 3 && v[0] != v[1];
-        bigDecimal(Fmt::bigNumber(r0, r1, low));
-        r0[Fmt::BIG_UNIT_COL] = Fmt::G_PERCENT;     // 창 위치
-        if (hasTemp()) {
-            memcpy(r1 + 11, "MAN", 3);
-            if (moving) { r1[14] = s1; r1[15] = s2; }
-            else if (differ) r1[14] = Fmt::G_DIFF;
-        } else {
-            memcpy(r0 + 13, "1+2", 3);
-            if (moving) { r1[14] = s1; r1[15] = s2; }
-            else if (differ) r1[15] = Fmt::G_DIFF;
+        // 설정 온도에는 단위를 붙이지 않는다. 단위는 현재 온도의 °C로 보인다 (2026-11-25)
+        // 아랫줄 10~15칸: 자동 판단 OP(열 차례) / CL(닫을 차례) / HD(그대로)와 다음 판단까지 남은 초 "HD  45".
+        // 창이 움직이는 중이면 시간 대신 방향 "OP   ^" (2026-11-25, 전에는 AUTO / 1^2^). 온도가 끊기면 비운다
+        if (hasTemp() && _st.temp.valid) {
+            memcpy(r1 + 10, Fmt::autoState(_st.temp.predicted, _s.temp.setT, _s.temp.deadband), 2);
+            char dir = 0;
+            for (uint8_t w = 0; w < 2 && !dir; w++) {
+                char c = Fmt::statusChar(_st.win[w]);
+                if (c == '^' || c == 'v') dir = c;
+            }
+            if (dir) r1[15] = dir;
+            else Fmt::waitSecs3(r1 + 13, _st.temp.nextS);
         }
     }
     _lcd.setLine(0, r0);
     _lcd.setLine(1, r1);
 }
 
-// 개별 화면: 윗줄 창1, 아랫줄 창2. 고른 창은 번호 옆에 *
+// 개별 화면: 윗줄 창1, 아랫줄 창2. 고른 창은 번호 옆에 *. 1+2(둘 다)는 함께 움직이는 창 모두에 *
 void Ui::drawWide() {
     useGlyphs(Glyphs::WIDE);
-    uint8_t sel = _item == Item::W1 ? 0 : 1;
+    uint8_t selMask;
+    if (_item == Item::SYNC) selMask = _editPos ? _editMask : syncMask();
+    else selMask = _item == Item::W1 ? 1 : 2;
     pct_t v[2];
     bool need[10] = {};
     for (uint8_t w = 0; w < 2; w++) {
@@ -948,7 +934,7 @@ void Ui::drawWide() {
     for (uint8_t w = 0; w < 2; w++) {
         const WindowStatus& ws = _st.win[w];
         bool editing = _editPos && ((_editMask >> w) & 1);
-        bool mine = w == sel;
+        bool mine = (selMask >> w) & 1;
         WinState s = ws.state;
         bool moving = s == WinState::MOVING || s == WinState::CLOSING || s == WinState::REVERSE_WAIT;
         memset(extra, ' ', 7);

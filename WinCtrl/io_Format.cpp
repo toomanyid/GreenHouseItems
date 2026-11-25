@@ -187,7 +187,7 @@ const uint8_t BIG_GLYPHS[BIG_GLYPH_COUNT][8] = {
     { 31, 31, 0, 0, 0, 0, 0, 0 },         // 위 가로획
     { 0, 0, 0, 0, 0, 0, 31, 31 },         // 아래 가로획
     { 31, 31, 0, 0, 0, 0, 31, 31 },       // 위아래 가로획
-    { 0, 0, 0, 0, 0, 0, 14, 14 },         // 소수점
+    { 6, 9, 9, 6, 0, 0, 0, 0 },           // 도 기호 ° (2026-11-25, 전에는 소수점. ROM 0xDF는 네모처럼 보임)
 };
 
 // 7획: a 위, b 오른쪽 위, c 오른쪽 아래, d 아래, e 왼쪽 아래, f 왼쪽 위, g 가운데
@@ -214,7 +214,7 @@ static void bigDash(char* row0, uint8_t col) { row0[col + 1] = G_BOT; }   // 가
 
 int8_t bigNumber(char* row0, char* row1, int16_t tenths) {
     for (uint8_t c = 0; c < 10; c++) { row0[c] = ' '; row1[c] = ' '; }
-    row1[6] = G_DOT;
+    row1[6] = '.';               // 소수점은 ROM 글자 (사용자 글자 자리는 °에 씀)
     row1[7] = G_DEC;
     row1[8] = (char)(G_DEC + 1);
     if (tenths < 0) {
@@ -307,6 +307,19 @@ void wideLine(char* out, uint8_t num, pct_t p, const WideSlots& s, bool selected
     wideDigit(out, 4, (uint8_t)(p / 10 % 10), s);
     out[6] = '.';
     out[7] = (char)('0' + p % 10);
+}
+
+const char* autoState(int16_t predicted, int16_t setT, int16_t deadband) {
+    if (predicted > setT + deadband) return "OP";
+    if (predicted < setT - deadband) return "CL";
+    return "HD";
+}
+
+void waitSecs3(char* out, uint16_t s) {
+    if (s > 999) s = 999;
+    out[0] = s >= 100 ? (char)('0' + s / 100) : ' ';
+    out[1] = s >= 10 ? (char)('0' + s / 10 % 10) : ' ';
+    out[2] = (char)('0' + s % 10);
 }
 
 bool Zigzag::feed(int8_t dir, uint32_t ms) {

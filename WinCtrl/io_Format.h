@@ -51,20 +51,16 @@ void smallLine(char* out, const WindowStatus& w, uint8_t num, bool sensorErr);
 //  사용자 글자 0~5번은 고정 획, 6~7번은 소수 자리 숫자의 반쪽이다.
 // ------------------------------------------------------------
 const uint8_t BIG_GLYPH_COUNT = 6;
-extern const uint8_t BIG_GLYPHS[BIG_GLYPH_COUNT][8];   // 왼쪽 세로획, 오른쪽 세로획, 위 가로획, 아래 가로획, 위아래 가로획, 소수점
+extern const uint8_t BIG_GLYPHS[BIG_GLYPH_COUNT][8];   // 왼쪽 세로획, 오른쪽 세로획, 위 가로획, 아래 가로획, 위아래 가로획, 도 기호
 const char G_VL   = 8;           // 사용자 글자 0번. 숫자 왼쪽 칸의 세로획 (칸의 오른쪽 3점)
 const char G_VR   = 9;           // 숫자 오른쪽 칸의 세로획 (칸의 왼쪽 3점)
 const char G_TOP  = 10;          // 위 가로획 (위 2줄)
 const char G_BOT  = 11;          // 아래 가로획 (아래 2줄). 윗줄에서는 가운데 획, 아랫줄에서는 아래 획
 const char G_BOTH = 12;
-const char G_DOT  = 13;
+const char G_DEG  = 13;          // 도 기호 ° (큰 글씨 화면에서만 쓸 수 있음)
 const char G_DEC  = 14;          // 소수 자리 왼쪽 반쪽. 오른쪽 반쪽은 G_DEC + 1
 const uint8_t BIG_DEC_SLOT = 6;  // G_DEC의 사용자 글자 번호
-const char G_DIFF = '*';         // 위치 동기에서 두 창 위치가 다름 (사용자 글자가 모자라 ROM 글자)
-// 큰 숫자의 단위. 소수 자리 위(윗줄 7칸, 소수 자리 왼쪽 반 위)에 쓴다. 온도는 도, 위치는 % (2026-11-25)
-const char G_DEGREE = (char)0xDF;   // HD44780 ROM(A00)의 도 기호
-const char G_PERCENT = '%';
-const uint8_t BIG_UNIT_COL = 7;
+const char G_DEGREE = G_DEG;        // 사용자 글자로 그린 둥근 °
 
 // row0의 0~5칸, row1의 0~8칸에 0.1 단위 값을 큰 숫자로 쓴다. 0~99.9, 음수면 "--.-".
 // 소수 자리 숫자를 돌려준다(음수면 -1, 가운데 획). 그 반쪽은 bigDecHalf로 만들어 6, 7번에 넣는다
@@ -87,6 +83,12 @@ void wideAssign(WideSlots& s, const bool need[10]);
 void wideLine(char* out, uint8_t num, pct_t p, const WideSlots& s, bool selected, const char* extra);
 // wideLine이 쓰는 숫자를 need에 표시한다
 void wideNeed(bool need[10], pct_t p);
+
+// 자동 판단 상태 두 글자: 예측 온도가 설정 온도 + 불감대보다 높으면 "OP"(열 차례), 설정 온도 - 불감대보다
+// 낮으면 "CL"(닫을 차례), 그 사이면 "HD"(그대로). app_TempControl과 같은 기준, 0.1도 단위 (2026-11-25)
+const char* autoState(int16_t predicted, int16_t setT, int16_t deadband);
+// 다음 판단까지 남은 초를 3글자 오른쪽 맞춤으로 ("  8", " 45", "600")
+void waitSecs3(char* out, uint16_t s);
 
 // 지그재그(+3 -3 +3 -3, 1초 안) 판정. 엔코더 칸마다 feed()하고, 완성되는 칸에서 true (2026-11-25)
 class Zigzag {
