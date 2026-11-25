@@ -206,6 +206,9 @@ private:
     uint8_t  _blMode = 0xFF;      // 시리얼 확인용: 0 꺼짐, 1 켜짐, 2 깜빡임
     int8_t   _pendDir = 0;
     Fmt::Zigzag _zigzag;
+    uint32_t _snapUntil = 0;      // 위치 입력이 1.0에 닿아 잠깐 멈춤
+    uint8_t  _posRun = 0;         // 위치 입력 가속: 같은 방향으로 이어 돌린 칸 수
+    int8_t   _posRunDir = 0;
     bool     _zigMute = false;    // 지그재그 판정 뒤: 엔코더가 잠깐 멈출 때까지 칸을 버림
     uint32_t _zigLastMs = 0;
     uint32_t _pendMs = 0;
@@ -750,8 +753,15 @@ void Ui::mainSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t
         // 위치 동기는 두 창에 같은 증감을 더한다. 닫을 때 낮은 쪽이 0.0이 되어도 높은 쪽은 계속 내려가고,
         // 열 때 높은 쪽이 리밋에서 멈춰도 낮은 쪽은 계속 올라간다
         for (uint8_t i = first; i < n; i++) {
-            pct_t step = (pct_t)stepSize(PCT_STEP, gaps[i]);
-            bool any = false;
+            // 1.0에 닿으면 잠깐 멈춘다 (빨리 돌려도 1.0을 지나 CLOSE로 넘어가지 않게, 2026-11-25)
+            if ((int32_t)(now - _snapUntil) < 0) { bumped = true; _posRun = 0; continue; }
+            // 가속: 이어 돌린 칸 수로 1111 222 555... (칸 사이 0.3초를 넘거나 방향이 바뀌면 처음부터)
+            if (dirs[i] != _posRunDir || gaps[i] > POS_ACCEL_GAP_MS) _posRun = 0;
+            _posRunDir = dirs[i];
+            if (_posRun < 255) _posRun++;
+            uint8_t mul = _posRun >= POS_ACCEL_X5_FROM ? 5 : (_posRun >= POS_ACCEL_X2_FROM ? 2 : 1);
+            pct_t step = (pct_t)(PCT_STEP * mul);
+            bool any = false, snap = false;
             for (uint8_t w = 0; w < 2; w++) {
                 if (!((_editMask >> w) & 1)) continue;
                 pct_t v = _edit[w], top = _s.win[w].limitPct;
@@ -764,10 +774,12 @@ void Ui::mainSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t
                     if (v <= PCT_MIN) v = PCT_CLOSE;                 // 1.0 아래로 한 칸 더 돌리면 CLOSE
                     else { v = (pct_t)(v - step); if (v < PCT_MIN) v = PCT_MIN; }
                 }
+                if (v == PCT_MIN && _edit[w] != PCT_MIN) snap = true;
                 _edit[w] = v;
                 any = true;
             }
             if (any) changed = true; else bumped = true;
+            if (snap) { _snapUntil = now + SNAP_HOME_MS; _posRun = 0; }
         }
     }
     _editMs = now;

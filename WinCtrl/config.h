@@ -108,6 +108,13 @@ const uint8_t  ZIGZAG_RUN            = 3;
 const uint8_t  ZIGZAG_RUNS           = 4;
 const uint32_t ZIGZAG_MS             = 1000;
 const uint32_t ZIGZAG_QUIET_MS       = 500;   // 판정 뒤 이어 비트는 칸은 이만큼 멈출 때까지 버린다
+// 위치 입력이 1.0(home)에 닿으면 이 시간 동안 돌려도 더 가지 않는다 (2026-11-25)
+const uint32_t SNAP_HOME_MS          = 400;
+// 위치 입력 가속: 같은 방향으로 이어 돌린 칸 수로 한 칸의 크기를 키운다 (2026-11-25)
+// 1~4번째 ×1, 5~7번째 ×2, 8번째부터 ×5. 칸 사이가 POS_ACCEL_GAP_MS를 넘거나 방향이 바뀌면 처음부터
+const uint32_t POS_ACCEL_GAP_MS      = 300;
+const uint8_t  POS_ACCEL_X2_FROM     = 5;
+const uint8_t  POS_ACCEL_X5_FROM     = 8;
 const uint32_t LONG_PRESS_MS         = 3000;
 const uint32_t SPLASH_MS             = 3000;
 const uint32_t BACKLIGHT_OFF_MS      = 300000; // 조작 없이 5분
