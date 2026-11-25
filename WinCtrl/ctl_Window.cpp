@@ -624,8 +624,16 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
         }
         raiseFault(Cause::LIMIT_HIT, now);
     } else {
-        // 상한에서 전류가 끊김: top으로 고쳐 쓴다
+        // 상한에서 전류가 끊김: top으로 고쳐 쓴다.
+        // top 근처(LIMIT_NEAR_TOP_PCT 안)면 정상 도착, 그보다 아래면 위치가 어긋난 것이라 고장
+        bool nearTop = _posState == PosState::VALID
+                    && (int64_t)(maxPos() - _pos) * 100 <= (int64_t)maxPos() * LIMIT_NEAR_TOP_PCT;
         if (_posState == PosState::VALID) _pos = maxPos();
+        if (nearTop && (_state == WinState::MOVING || _state == WinState::HOMING)) {
+            _goal = Goal::NONE;
+            settleIdle();
+            return;
+        }
         raiseFault(Cause::LIMIT_HIT, now);
     }
 }

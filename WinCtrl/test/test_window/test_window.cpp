@@ -409,6 +409,35 @@ static void test_limit_hit_fault_on_top() {
     CHECK(sim.w.pos() == sim.w.maxPos());
 }
 
+// top 근처(2% 안)에서 상한 리밋에 닿으면 도착으로 본다 (2026-11-25)
+static void test_limit_near_top_is_arrival() {
+    Sim sim;
+    sim.p.u = 3000;
+    sim.begin(baseSettings());
+    sim.move(10000);
+    CHECK(sim.runUntilIdle(200000));
+    sim.p.top = 19800;            // 실제 상한이 top보다 1% 낮음
+    sim.move(20000);
+    CHECK(sim.runUntilIdle(200000));
+    CHECK(sim.w.state() == WinState::IDLE);
+    CHECK(sim.w.pos() == sim.w.maxPos());
+    CHECK_NEAR(sim.p.u, 19800, 1);
+}
+
+static void test_limit_below_near_top_is_fault() {
+    Sim sim;
+    sim.p.u = 3000;
+    sim.begin(baseSettings());
+    sim.move(10000);
+    CHECK(sim.runUntilIdle(200000));
+    sim.p.top = 19400;            // 3% 낮음: 위치가 어긋남
+    sim.move(20000);
+    CHECK(sim.runUntil(WinState::FAULT, 200000));
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.fault == Cause::LIMIT_HIT);
+}
+
 static void test_timeout() {
     Sim sim;
     WindowSettings s = baseSettings();
@@ -879,6 +908,8 @@ int main() {
     RUN(test_move_and_reverse_wait);
     RUN(test_down_ratio);
     RUN(test_close_and_reopen);
+    RUN(test_limit_near_top_is_arrival);
+    RUN(test_limit_below_near_top_is_fault);
     RUN(test_calibration_limit_release);
     RUN(test_open_from_bottom_limit_release);
     RUN(test_overload_during_limit_release);
