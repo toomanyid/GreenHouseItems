@@ -44,8 +44,12 @@ const uint16_t DUTY_FULL             = 1000;
 // ============================================================
 const uint32_t OVERLOAD_WINDOW_MS    = 300;   // 과부하 판정 평균 시간
 const uint32_t START_IGNORE_MS       = 1000;  // 기동 후 판정 제외 시간
+// 내장 리밋에 닿아 선 뒤 반대로 출발하면, 리밋 스위치가 다시 붙을 때까지(실물 약 5초)
+// 전류가 다이오드를 거쳐 낮게 흐른다. 이 동안은 리밋 도달(전류 끊김)과 무전류 판정을 하지 않는다.
+// 과부하와 드라이버 고장 판정은 그대로 한다. (2026-11-25 사용자 결정, 실물로 맞춘 값)
+const uint32_t LIMIT_RELEASE_MS      = 5000;
 const uint32_t OVERLOAD_BACKOFF_MS   = 1500;  // 과부하 후 되돌림 시간
-const int32_t  NO_CURRENT_MA         = 300;   // 전류 없음으로 보는 경계
+const int32_t  NO_CURRENT_MA         = 200;   // 전류 없음으로 보는 경계 (무전류, 리밋 도달 판정). 2026-11-25 300→200: 부하 없는 62W 모터 상승이 약 300mA
 const int32_t  FIXED_LIMIT_MA_50W    = 5000;  // 모델별 고정 상한
 const int32_t  FIXED_LIMIT_MA_300W   = 20000;
 const uint32_t REFAULT_WINDOW_MS     = 60000; // 해제 후 이 시간 안에 다시 고장 나면 위치를 "모름"으로 (임시)

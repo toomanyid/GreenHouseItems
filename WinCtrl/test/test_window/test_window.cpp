@@ -17,17 +17,30 @@ struct Plant {
     int32_t loadMa = 2000;
     bool    connected = true;    // 모터 플러그가 자동 소켓에 꽂혀 있음
     int     stuck = 0;           // 원점 센서: 0 정상, 1 늘 OFF (단선이나 센서 없음), 2 늘 ON
+    // 리밋 스위치 풀림 (releaseZone > 0일 때만): 리밋에 닿으면 그 끝에서 releaseZone(cs)만큼 떠날 때까지
+    // 반대로 가는 전류는 다이오드를 거쳐 releaseMa로 낮고, 다시 리밋 쪽으로 가면 전류도 움직임도 없다
+    double  releaseZone = 0;
+    int32_t releaseMa = 150;     // 전류 없음 경계(200mA)보다 낮게
+    int8_t  latched = 0;         // -1 하한 리밋 눌림, +1 상한 리밋 눌림
 
     void step(int8_t dir, uint16_t duty, uint32_t dtMs) {
         double d = (double)duty * dtMs / 10.0 / 1000.0;   // cs
         if (!connected) return;
+        if (latched != 0 && dir == latched) return;
         if (dir > 0) { u += d; if (u > top) u = top; }
         if (dir < 0) { u -= d * downSpeed; if (u < 0) u = 0; }
+        if (releaseZone > 0) {
+            if (u <= 0) latched = -1;
+            else if (u >= top) latched = 1;
+            else if (latched < 0 && u >= releaseZone) latched = 0;
+            else if (latched > 0 && u <= top - releaseZone) latched = 0;
+        }
     }
     int32_t current(int8_t dir, uint16_t duty) const {
         if (!connected || dir == 0 || duty == 0) return 0;
         if (dir > 0 && u >= top) return 0;
         if (dir < 0 && u <= 0) return 0;
+        if (latched != 0) return dir == latched ? 0 : releaseMa;
         return loadMa * (duty < 200 ? 200 : duty) / 1000 + 400;
     }
     SensorState sensor() const {
@@ -371,7 +384,11 @@ static void test_no_current() {
     sim.p.connected = false;      // 모터 플러그가 수동 소켓에 있음
     sim.begin(baseSettings());
     sim.move(8000);
-    CHECK(sim.runUntil(WinState::FAULT, 5000));
+    // 위치를 몰라 먼저 내리는데 전류가 없어 하한으로 본다. 그다음 올라가는 것은 리밋에서 떠나는 구동이라
+    // LIMIT_RELEASE_MS 뒤에 무전류로 잡힌다 (2026-11-25)
+    uint32_t t0 = sim.now;
+    CHECK(sim.runUntil(WinState::FAULT, 12000));
+    CHECK(sim.now - t0 > LIMIT_RELEASE_MS);
     WindowStatus st;
     sim.w.fillStatus(st);
     CHECK(st.fault == Cause::NO_CURRENT);
@@ -776,6 +793,82 @@ static void test_current_monitor() {
     CHECK(m.settledAvg() == 2000);
 }
 
+// 리밋에서 떠나는 5초 동안 전류가 낮아도(다이오드) 끊김으로 보지 않는다 (2026-11-25)
+static void test_calibration_limit_release() {
+    Sim sim;
+    WindowSettings s;
+    SettingsRules::defaultsWindow(s);
+    sim.p.stuck = 1;
+    sim.p.u = 6000;
+    sim.p.releaseZone = 450;     // 전속 4.5초 거리 (소프트 스타트 포함 5초 안)
+    sim.begin(s);
+    Job j = {};
+    j.type = JobType::CALIBRATE;
+    CHECK(sim.w.submit(j));
+    for (int i = 0; i < 100000 && (i < 10 || sim.w.state() == WinState::CALIBRATING
+                                   || sim.w.state() == WinState::REVERSE_WAIT); i++) sim.step();
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.cal.phase == CalPhase::DONE);
+    CHECK(st.cal.failCause == Cause::NONE);
+    CHECK_NEAR(st.cal.upTime, 20000, 3);
+    CHECK_NEAR(st.cal.downTime, 20000, 3);
+}
+
+static void test_open_from_bottom_limit_release() {
+    Sim sim;
+    sim.p.u = 3000;
+    sim.p.stuck = 1;
+    sim.p.releaseZone = 450;
+    WindowSettings s = baseSettings();
+    s.homeSensAuto = false;
+    sim.begin(s);
+    sim.close();
+    CHECK(sim.runUntilIdle(200000));
+    CHECK(sim.w.posState() == PosState::CLOSED);
+    CHECK(sim.p.latched == -1);
+    sim.move(3000);
+    CHECK(sim.runUntilIdle(100000));
+    CHECK(sim.w.state() == WinState::IDLE);
+    CHECK(sim.w.pos() == 3000);
+    CHECK_NEAR(sim.p.u, 3000, 3);
+}
+
+// 리밋을 떠나는 중에도 과부하는 잡는다
+static void test_overload_during_limit_release() {
+    Sim sim;
+    sim.p.u = 3000;
+    sim.p.stuck = 1;
+    sim.p.releaseZone = 450;
+    WindowSettings s = baseSettings();
+    s.homeSensAuto = false;
+    sim.begin(s);
+    sim.close();
+    CHECK(sim.runUntilIdle(200000));
+    sim.p.releaseMa = 6000;      // 50W 과부하 기준(3250)보다 큼
+    sim.move(3000);
+    CHECK(sim.runUntil(WinState::FAULT, 3000));
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.fault == Cause::OVERLOAD);
+}
+
+// 중간에서 출발하면 지금처럼 1초 뒤부터 판정한다 (리밋에서 떠날 때만 5초)
+static void test_no_release_from_middle() {
+    Sim sim;
+    sim.p.u = 5000;
+    sim.begin(baseSettings());
+    sim.move(6000);
+    CHECK(sim.runUntilIdle(200000));
+    CHECK(sim.w.posState() == PosState::VALID);
+    sim.p.connected = false;
+    sim.move(8000);
+    CHECK(sim.runUntil(WinState::FAULT, 2500));
+    WindowStatus st;
+    sim.w.fillStatus(st);
+    CHECK(st.fault == Cause::NO_CURRENT);
+}
+
 int main() {
     RUN(test_settings_basics);
     RUN(test_defaults_50w);
@@ -786,6 +879,10 @@ int main() {
     RUN(test_move_and_reverse_wait);
     RUN(test_down_ratio);
     RUN(test_close_and_reopen);
+    RUN(test_calibration_limit_release);
+    RUN(test_open_from_bottom_limit_release);
+    RUN(test_overload_during_limit_release);
+    RUN(test_no_release_from_middle);
     RUN(test_close_when_unknown_and_already_closed);
     RUN(test_upper_limit);
     RUN(test_overload_backoff);

@@ -137,6 +137,8 @@ private:
     uint32_t  _driveStartMs = 0;
     int64_t   _runRaw = 0;          // 이번 구동에서 쌓인 100% 출력 환산 시간 (1000 = 1cs, 환산 없음)
     int8_t    _lastCutDir = 0;
+    int8_t    _atLimit = 0;             // 내장 리밋에 닿아 선 쪽 (-1 하한, +1 상한, 0 아님)
+    bool      _releasing = false;       // 이번 구동이 리밋에서 반대로 떠나는 구동인지
     uint32_t  _lastCutMs = 0;
     uint32_t  _bootGuardMs = 0;
     uint32_t  _lastTickMs = 0;

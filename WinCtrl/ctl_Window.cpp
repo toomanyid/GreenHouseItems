@@ -248,6 +248,8 @@ void Window::startDrive(int8_t dir, uint32_t now) {
     (void)now;
     _dir = dir;
     _waitRelay = true;
+    _releasing = _atLimit != 0 && dir == -_atLimit;   // 리밋에서 반대로 떠남
+    _atLimit = 0;
     _runRaw = 0;
     _acc = 0;
     _upPassActive = false;
@@ -511,11 +513,13 @@ void Window::checkRunning(const WindowInputs& in) {
         overload(now);
         return;
     }
-    if (_mon.pastStartup() && !_mon.everFlowed()) {
+    // 리밋에서 떠나는 처음 LIMIT_RELEASE_MS는 전류가 낮아도 끊김, 무전류로 보지 않는다
+    bool releasing = _releasing && now - _driveStartMs < LIMIT_RELEASE_MS;
+    if (!releasing && _mon.pastStartup() && !_mon.everFlowed()) {
         onNoCurrent(now, in.sensor);
         return;
     }
-    if (_mon.stopped()) {
+    if (!releasing && _mon.stopped()) {
         onCurrentStopped(now, in.sensor);
         return;
     }
@@ -534,6 +538,7 @@ void Window::onNoCurrent(uint32_t now, SensorState sensor) {
         // 측정의 첫 하강: 이미 하한에 있어 전류가 흐르지 않음
         if (_state == WinState::CALIBRATING && _cal.phase == CalPhase::DOWN_FIRST) {
             cut(now);
+            _atLimit = -1;
             calAtBottom(sensor, now);
             return;
         }
@@ -550,6 +555,7 @@ void Window::onNoCurrent(uint32_t now, SensorState sensor) {
 
 void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
     int8_t d = _dir;
+    _atLimit = d;                       // 내장 리밋에 닿아 섰다 (다음에 반대로 떠날 때 LIMIT_RELEASE_MS)
 
     if (_state == WinState::FAULT) { cut(now); _fPhase = FaultPhase::HOLD; return; }
 

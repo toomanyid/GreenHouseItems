@@ -356,12 +356,50 @@ void Ui::pushSettings(uint8_t timesMask, uint8_t calMask) {
     if (!_settingsPending) { _pendTimes = 0; _pendCal = 0; }
 }
 
+#ifdef WINCTRL_BENCH
+// 책상 시험용 진단 로그: 창 상태, 측정 단계, 전류를 시리얼에 찍는다 (읽기만 하고 동작은 바꾸지 않는다).
+// 바뀔 때마다 한 줄, 움직이는 동안 0.5초마다 한 줄.
+static void benchLog(const Status& st, uint32_t now) {
+    static const char* STATE[] = { "IDLE", "HOMING", "MOVING", "CLOSING", "REV_WAIT", "CAL", "LIMIT", "FAULT", "ESTOP" };
+    static const char* PHASE[] = { "-", "DOWN_FIRST", "WAIT_1", "UP", "WAIT_2", "DOWN", "DONE", "FAILED" };
+    static const char* CAUSE[] = { "-", "OVERLOAD", "NO_CURRENT", "LIMIT_HIT", "DRIVER", "TIMEOUT", "SENSOR", "RELAY",
+                                   "HOME_SENSOR", "TEMP_LOST", "TEMP_BAD" };
+    struct Last { uint8_t state, phase, fault, calCause; int8_t dir; };
+    static Last last[2] = { { 0xFF, 0xFF, 0xFF, 0xFF, 0 }, { 0xFF, 0xFF, 0xFF, 0xFF, 0 } };
+    static uint32_t lastTick = 0;
+    bool periodic = now - lastTick >= 500;
+    if (periodic) lastTick = now;
+    for (uint8_t i = 0; i < 2; i++) {
+        const WindowStatus& w = st.win[i];
+        Last cur = { (uint8_t)w.state, (uint8_t)w.cal.phase, (uint8_t)w.fault, (uint8_t)w.cal.failCause, w.dir };
+        bool changed = memcmp(&cur, &last[i], sizeof cur) != 0;
+        if (!changed && !(periodic && (w.dir != 0 || w.state == WinState::CALIBRATING))) continue;
+        last[i] = cur;
+        uint8_t ph = cur.phase < 8 ? cur.phase : 0;
+        Serial.printf("[win%u] %lu.%02lus %s%s dir %+d cal %s %ld.%02lds  I %ldmA max %ldmA  pos %ld  fault %s calFail %s%s\n",
+                      i + 1, (unsigned long)(now / 1000), (unsigned long)(now % 1000 / 10),
+                      cur.state < 9 ? STATE[cur.state] : "?", changed ? "*" : "", w.dir, PHASE[ph],
+                      (long)(w.cal.elapsed / 100), (long)(w.cal.elapsed % 100),
+                      (long)w.currentMa, (long)w.moveMaxMa, (long)w.pos,
+                      cur.fault < 11 ? CAUSE[cur.fault] : "?", cur.calCause < 11 ? CAUSE[cur.calCause] : "?",
+                      w.cal.outOfRange ? " OUT_OF_RANGE" : "");
+        if (changed && (w.cal.phase == CalPhase::WAIT_2 || w.cal.phase == CalPhase::DONE || w.cal.phase == CalPhase::FAILED))
+            Serial.printf("[win%u] cal result up %ld cs, down %ld cs, Imax up %ld dn %ld mA, Iavg up %ld dn %ld mA, sensor %d\n",
+                          i + 1, (long)w.cal.upTime, (long)w.cal.downTime, (long)w.cal.iMaxUp, (long)w.cal.iMaxDn,
+                          (long)w.cal.iAvgUp, (long)w.cal.iAvgDn, w.cal.sensorMode);
+    }
+}
+#endif
+
 // ============================================================
 //  주기
 // ============================================================
 void Ui::tick() {
     uint32_t now = millis();
     ControlTask::getStatus(_st);
+#ifdef WINCTRL_BENCH
+    benchLog(_st, now);
+#endif
     consumeEvents(now);
 
     // 보내지 못한 잡과 설정은 다시 보낸다
@@ -1334,7 +1372,8 @@ void Ui::menuTick(uint32_t now) {
             if (_calRes.phase == CalPhase::DONE && !_calRes.outOfRange) {
                 _page = 0;
                 _lv = Level::CAL_RESULT;
-            } else if (_calRes.phase == CalPhase::DONE) {
+            } else if (_calRes.outOfRange) {
+                // 끝까지 갔지만 값이 범위 밖 (2층은 phase를 FAILED, 원인을 NONE으로 둔다)
                 snprintf(l0, sizeof(l0), "CAL W%u FAILED", (unsigned)(_calWin + 1));
                 message(l0, "OUT OF RANGE", now, true, Level::TOP);
             } else if (_calRes.failCause == Cause::NONE) {
