@@ -103,6 +103,11 @@ const uint32_t ESTOP_DEBOUNCE_MS     = 30;
 //  조작과 화면
 // ============================================================
 const uint32_t INPUT_COMMIT_MS       = 2000;  // 입력 확정 시간
+// 지그재그 취소: 같은 방향 ZIGZAG_RUN칸 이상을 방향을 바꿔 ZIGZAG_RUNS번(+3 -3 +3 -3), ZIGZAG_MS 안에 (2026-11-25)
+const uint8_t  ZIGZAG_RUN            = 3;
+const uint8_t  ZIGZAG_RUNS           = 4;
+const uint32_t ZIGZAG_MS             = 1000;
+const uint32_t ZIGZAG_QUIET_MS       = 500;   // 판정 뒤 이어 비트는 칸은 이만큼 멈출 때까지 버린다
 const uint32_t LONG_PRESS_MS         = 3000;
 const uint32_t SPLASH_MS             = 3000;
 const uint32_t BACKLIGHT_OFF_MS      = 300000; // 조작 없이 5분

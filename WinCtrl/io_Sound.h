@@ -15,7 +15,8 @@ enum class Snd : uint8_t {
     LIMIT_STOP,   // 상한 리밋에서 정지
     ALERT,        // 원점 센서 에러, 온도 센서 끊김
     BOOT_OK,      // 자가 점검 통과
-    ERROR_BEEP    // 저장 실패, 범위 밖 같은 화면 안내
+    ERROR_BEEP,   // 저장 실패, 범위 밖 같은 화면 안내
+    CANCEL        // 지그재그로 입력 취소 (높은 음에서 낮은 음)
 };
 
 class Sound {

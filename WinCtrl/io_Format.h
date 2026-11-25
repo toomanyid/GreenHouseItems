@@ -88,4 +88,17 @@ void wideLine(char* out, uint8_t num, pct_t p, const WideSlots& s, bool selected
 // wideLine이 쓰는 숫자를 need에 표시한다
 void wideNeed(bool need[10], pct_t p);
 
+// 지그재그(+3 -3 +3 -3, 1초 안) 판정. 엔코더 칸마다 feed()하고, 완성되는 칸에서 true (2026-11-25)
+class Zigzag {
+public:
+    bool feed(int8_t dir, uint32_t ms);
+    void reset() { _dir = 0; _run = 0; _done = 0; }
+private:
+    int8_t   _dir = 0;
+    uint8_t  _run = 0;          // 지금 방향으로 이어진 칸 수
+    uint8_t  _done = 0;         // ZIGZAG_RUN칸 이상으로 끝난 묶음 수 (방향이 번갈아)
+    uint32_t _runMs = 0;        // 지금 묶음의 첫 칸 시각
+    uint32_t _startMs = 0;      // 첫 묶음의 첫 칸 시각
+};
+
 }  // namespace Fmt

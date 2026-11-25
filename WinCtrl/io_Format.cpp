@@ -309,4 +309,25 @@ void wideLine(char* out, uint8_t num, pct_t p, const WideSlots& s, bool selected
     out[7] = (char)('0' + p % 10);
 }
 
+bool Zigzag::feed(int8_t dir, uint32_t ms) {
+    if (dir == _dir) {
+        if (_run < 255) _run++;
+    } else {
+        // 방향이 바뀜: 앞 묶음이 길었으면 하나 끝낸 것, 아니면 처음부터
+        if (_dir != 0 && _run >= ZIGZAG_RUN) _done++;
+        else _done = 0;
+        _dir = dir;
+        _run = 1;
+        _runMs = ms;
+        if (_done == 0) _startMs = ms;
+    }
+    // 1초를 넘기면 지금 묶음부터 다시 센다
+    if (_done > 0 && ms - _startMs > ZIGZAG_MS) { _done = 0; _startMs = _runMs; }
+    if (_done + 1 >= ZIGZAG_RUNS && _run >= ZIGZAG_RUN && ms - _startMs <= ZIGZAG_MS) {
+        reset();
+        return true;
+    }
+    return false;
+}
+
 }  // namespace Fmt

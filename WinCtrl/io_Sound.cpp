@@ -15,6 +15,7 @@ void Sound::play(Snd s) {
     static const Note alert[]  = { {2500, 300, 0} };
     static const Note boot[]   = { {2000, 80, 80}, {2000, 80, 0} };
     static const Note err[]    = { {800, 150, 0} };
+    static const Note cancel[] = { {2500, 60, 30}, {1200, 90, 0} };
 
     switch (s) {
     case Snd::CLICK:      if (_click) start(click, N(click), 0); break;
@@ -25,6 +26,7 @@ void Sound::play(Snd s) {
     case Snd::ALERT:      if (_alarm) start(alert, N(alert), 0); break;
     case Snd::BOOT_OK:    if (_alarm) start(boot, N(boot), 0); break;
     case Snd::ERROR_BEEP: if (_alarm) start(err, N(err), 0); break;
+    case Snd::CANCEL:     if (_click) start(cancel, N(cancel), 0); break;
     }
 }
 

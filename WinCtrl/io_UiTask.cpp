@@ -205,6 +205,9 @@ private:
     uint32_t _alarmSince = 0;
     uint8_t  _blMode = 0xFF;      // 시리얼 확인용: 0 꺼짐, 1 켜짐, 2 깜빡임
     int8_t   _pendDir = 0;
+    Fmt::Zigzag _zigzag;
+    bool     _zigMute = false;    // 지그재그 판정 뒤: 엔코더가 잠깐 멈출 때까지 칸을 버림
+    uint32_t _zigLastMs = 0;
     uint32_t _pendMs = 0;
     uint32_t _lastLcdInit = 0;
 
@@ -501,8 +504,8 @@ void Ui::readInput(uint32_t now) {
 
     // 시리얼 확인용: 엔코더 한 칸과 누름/뗌을 찍는다
     for (uint8_t i = 0; i < n; i++)
-        Serial.printf("[enc] step %s (edges %lu)\n", steps[i].dir > 0 ? "CW +1" : "CCW -1",
-                      (unsigned long)_enc.edgeCount());
+        Serial.printf("[enc] step %s (edges %lu) t=%lu\n", steps[i].dir > 0 ? "CW +1" : "CCW -1",
+                      (unsigned long)_enc.edgeCount(), (unsigned long)steps[i].ms);
     if (down != _btnDown) Serial.printf("[enc] button %s\n", down ? "DOWN" : "UP");
 
     if (n || down != _btnDown) {
@@ -562,18 +565,41 @@ void Ui::onSteps(const EncStep* st, uint8_t n, uint32_t now) {
     int8_t dirs[16];
     uint32_t gaps[16];
     uint8_t m = 0;
+    // 지그재그(+3 -3 +3 -3, 1초 안): 판정 전 칸은 평소처럼 입력에 들어가고, 판정되면 입력을 버린다.
+    // 판정 뒤 이어 비트는 칸은 ZIGZAG_QUIET_MS 동안 멈출 때까지 버린다 (2026-11-25 시험)
+    bool zig = false;
     for (uint8_t i = 0; i < n; i++) {
+        if (_zigMute) {
+            bool still = st[i].ms - _zigLastMs <= ZIGZAG_QUIET_MS;
+            _zigLastMs = st[i].ms;
+            if (still) continue;
+            _zigMute = false;                // 잠깐 멈췄다가 다시 돌림: 새 입력
+        }
+        if (_zigzag.feed(st[i].dir, st[i].ms)) {
+            zig = true;
+            _zigMute = true;
+            _zigLastMs = st[i].ms;
+            continue;
+        }
+        if (m >= 15) continue;
         // 칸 사이 시간은 빨리 돌리기 판정에만 쓴다. 방향이 바뀌었거나 오래 쉬었으면 느린 칸으로 본다
         uint32_t gap = st[i].ms - _pendMs;
         bool same = _pendDir == st[i].dir && gap <= ENC_VALID_WINDOW_MS;
         dirs[m] = st[i].dir; gaps[m] = same ? gap : 1000; m++;
         _pendDir = st[i].dir;
         _pendMs = st[i].ms;
-        if (m >= 15) break;
     }
-    if (!m) return;
-    if (_screen == Screen::MAIN) mainSteps(dirs, gaps, m, now);
-    else menuSteps(dirs, gaps, m, now);
+    if (m) {
+        if (_screen == Screen::MAIN) mainSteps(dirs, gaps, m, now);
+        else menuSteps(dirs, gaps, m, now);
+    }
+    if (zig && _screen == Screen::MAIN && (_editTemp || _editPos)) {
+        cancelEdit();
+        _snd.play(Snd::CANCEL);
+        Serial.println("[enc] zigzag: input cancelled");
+    } else if (zig) {
+        Serial.println("[enc] zigzag (nothing to cancel)");
+    }
 }
 
 // ============================================================
