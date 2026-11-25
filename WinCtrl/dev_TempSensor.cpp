@@ -7,7 +7,7 @@
 
 void TempSensor::begin(uint8_t pin) {
     _pin = pin;
-    analogSetPinAttenuation(_pin, ADC_11db);
+    adcInit(_pin);
     _first = true;
 }
 

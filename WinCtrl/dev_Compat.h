@@ -42,6 +42,22 @@ inline void pwmTone(uint8_t pin, uint8_t channel, uint32_t freq) {
 #endif
 }
 
+// 아날로그 핀을 11dB(약 0~3.1V)로 준비한다.
+// 3.x는 한 번 읽어 ADC 채널로 잡힌 핀에만 감쇠를 걸 수 있다
+// (먼저 걸면 "Pin is not configured as analog channel" 에러가 나고 무시된다)
+inline void adcInit(uint8_t pin) {
+    (void)analogReadMilliVolts(pin);
+    analogSetPinAttenuation(pin, ADC_11db);
+}
+
+// 출력 핀을 LOW로 준비한다.
+// 3.x는 pinMode 전에 digitalWrite를 하면 에러를 내고 무시하므로 pinMode를 먼저 한다.
+// 리셋 직후 출력 레지스터는 0이라 OUTPUT으로 바뀌는 순간에도 LOW다
+inline void outputLow(uint8_t pin) {
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, LOW);
+}
+
 // 아날로그 핀을 mV로 여러 번 읽어 평균
 inline int32_t readMv(uint8_t pin, uint8_t samples) {
     int32_t sum = 0;

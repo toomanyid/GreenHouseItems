@@ -6,12 +6,10 @@
 
 void RelayDriver::begin(uint8_t pinFetA, uint8_t pinFetB, uint8_t pinRelaySense, uint8_t pinEstopSense) {
     _a = pinFetA; _b = pinFetB; _rs = pinRelaySense; _es = pinEstopSense;
-    digitalWrite(_a, LOW);
-    digitalWrite(_b, LOW);
-    pinMode(_a, OUTPUT);
-    pinMode(_b, OUTPUT);
-    analogSetPinAttenuation(_rs, ADC_11db);
-    analogSetPinAttenuation(_es, ADC_11db);
+    outputLow(_a);
+    outputLow(_b);
+    adcInit(_rs);
+    adcInit(_es);
 }
 
 void RelayDriver::set(bool fetA, bool fetB) {

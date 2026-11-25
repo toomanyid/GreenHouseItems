@@ -10,13 +10,12 @@ void MotorDriver::begin(uint8_t pinR, uint8_t pinL, uint8_t pinEn, uint8_t pinIs
                         uint8_t chR, uint8_t chL, int32_t senseOhm, uint32_t now) {
     _r = pinR; _l = pinL; _en = pinEn; _is = pinIs; _chR = chR; _chL = chL;
     _ohm = senseOhm > 0 ? senseOhm : 1000;
-    digitalWrite(_en, LOW);
-    pinMode(_en, OUTPUT);
+    outputLow(_en);
     pwmAttach(_r, _chR, PWM_FREQ_HZ, PWM_BITS);
     pwmAttach(_l, _chL, PWM_FREQ_HZ, PWM_BITS);
     pwmWrite(_r, _chR, 0);
     pwmWrite(_l, _chL, 0);
-    analogSetPinAttenuation(_is, ADC_11db);
+    adcInit(_is);
     _dir = 0;
     _lastDir = 0;
     _stopMs = now;              // 전원을 켠 뒤 첫 구동 전에도 1초
