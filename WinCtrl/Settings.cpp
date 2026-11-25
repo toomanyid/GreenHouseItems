@@ -110,6 +110,12 @@ bool calInRange(const CalStatus& c) {
 }
 
 pct_t pctFromPos(cs_t pos, cs_t home, cs_t top) {
+    // bottom과 home 사이는 0.0~1.0으로 비례해서 보인다 (2026-11-25 변경). 0보다 위면 적어도 0.1
+    if (pos < home) {
+        if (pos <= 0) return PCT_CLOSE;
+        pct_t p = (pct_t)(((int64_t)pos * PCT_MIN * 2 + home) / (2 * (int64_t)home));
+        return p < 1 ? 1 : (p > PCT_MIN ? PCT_MIN : p);
+    }
     cs_t span = top - home;
     if (span <= 0 || pos <= home) return PCT_MIN;
     int64_t p = PCT_MIN + ((int64_t)(pos - home) * (PCT_MAX - PCT_MIN) * 2 + span) / (2 * (int64_t)span);

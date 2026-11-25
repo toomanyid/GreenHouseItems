@@ -43,7 +43,8 @@ namespace SettingsRules {
     cs_t sensorPoint(const WindowSettings& w);   // home + 되내림 거리(상승 기준)
 
     // 위치 ↔ 백분율. 백분율 = 1.0 + (pos − home) × 98.9 ÷ (top − home), 0.1 단위로 반올림.
-    // pctFromPos는 1.0~99.9를 돌려준다 (CLOSE는 부르는 쪽이 0.0으로 본다)
+    // pctFromPos는 home~top을 1.0~99.9로, bottom~home을 0.0~1.0으로 돌려준다 (2026-11-25).
+    // 0.0은 CLOSE와 같은 값이다. 닫힘 상태는 부르는 쪽이 따로 CLOSE로 본다
     pct_t pctFromPos(cs_t pos, cs_t home, cs_t top);
     cs_t  posFromPct(pct_t pct, cs_t home, cs_t top);
     // 상한 리밋 위치. 리밋 없음이면 top

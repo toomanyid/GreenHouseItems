@@ -232,6 +232,11 @@ void Lcd::oledRow(uint8_t row) {
                     for (uint8_t x = 0; x < 8; x++) Wire.write(g[x]);
                     continue;
                 }
+                if (ch == 0xDF) {                     // HD44780 ROM의 도 기호: 위 반쪽에 작은 고리
+                    static const uint8_t DEG[8] = { 0x00, 0x0C, 0x12, 0x12, 0x0C, 0x00, 0x00, 0x00 };
+                    for (uint8_t x = 0; x < 8; x++) Wire.write(half == 0 ? DEG[x] : 0);
+                    continue;
+                }
                 if (ch < 32 || ch > 126) ch = '?';
                 const uint8_t* g = OLED_FONT_8X16[ch - 32] + half * 8;
                 for (uint8_t x = 0; x < 8; x++) Wire.write(g[x]);

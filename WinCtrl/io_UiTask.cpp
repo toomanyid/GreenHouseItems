@@ -144,6 +144,7 @@ private:
     pct_t startPct(uint8_t w) const;
     void cancelEdit();
     void commitPos(uint32_t now);
+    void commitTemp();
 
     // 설정 메뉴
     void enterMenu(uint32_t now);
@@ -211,7 +212,6 @@ private:
     Item     _item = Item::SYNC;
     uint8_t  _savedItem = SAVED_SYNC;
     int8_t   _modeSent = -1;      // 제어 쪽에 알린 모드 (1 수동, 0 자동)
-    uint32_t _selMs = 0;          // 마지막 조작 (개별 항목에서 5초 뒤 위치 동기로)
     bool     _editTemp = false;
     int16_t  _editSetT = 0;
     bool     _editPos = false;
@@ -219,9 +219,6 @@ private:
     pct_t    _edit[2] = { 0, 0 };
     pct_t    _editBase[2] = { 0, 0 };
     uint32_t _editMs = 0;
-    bool     _indivWait = false;  // 개별 이동을 넣음: 도착하면 위치 동기로
-    bool     _indivSeen = false;
-    uint32_t _indivMs = 0;
     Glyphs   _glyphs = Glyphs::NONE;
     Fmt::WideSlots _wide = { { -1, -1, -1, -1 } };
     bool     _jobPending = false;
@@ -619,10 +616,9 @@ void Ui::sendMode() {
 
 // 항목을 바꾼다. user가 true면 사용자가 고른 것이라 저장한다
 void Ui::selectItem(Item it, bool user, uint32_t now) {
+    (void)now;
     cancelEdit();
     _item = it;
-    _selMs = now;
-    _indivWait = false;
     sendMode();
     if (user) {
         uint8_t v = it == Item::TEMP ? SAVED_TEMP : SAVED_SYNC;
@@ -665,7 +661,7 @@ pct_t Ui::startPct(uint8_t w) const {
 }
 
 void Ui::mainShort(uint32_t now) {
-    // 순서: 움직이면 정지, 다음이 에러 확인, 그다음 입력 취소나 다음 항목
+    // 순서: 움직이면 정지, 다음이 에러 확인, 그다음 입력 확정이나 다음 항목
     if (anyMoving()) {
         Alert a = { AlertType::STOP_ALL, 0xFF, Cause::NONE };
         ControlTask::sendAlert(a);
@@ -679,8 +675,9 @@ void Ui::mainShort(uint32_t now) {
         return;
     }
     if (_editTemp || _editPos) {
-        cancelEdit();
-        if (_item == Item::W1 || _item == Item::W2) selectItem(Item::SYNC, false, now);
+        // 입력 중에 누르면 2초를 기다리지 않고 바로 확정한다. 설정 메뉴처럼 "누르면 확인" (2026-11-25)
+        if (_editTemp) commitTemp();
+        else commitPos(now);
         return;
     }
     Item next;
@@ -696,7 +693,6 @@ void Ui::mainShort(uint32_t now) {
 void Ui::mainSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t now) {
     if (!_st.bootDone) return;
     if (errorScreen()) { _snd.play(Snd::ERROR_BEEP); return; }   // 에러를 먼저 확인한다
-    _selMs = now;
     bool changed = false, bumped = false;
     // 입력 중이 아니면 첫 칸은 값을 바꾸지 않고 입력을 시작만 한다.
     // 한 칸짜리 튀는 신호는 여기서 걸러지고, 2초 동안 더 돌리지 않으면 아무것도 하지 않고 끝난다
@@ -753,8 +749,20 @@ void Ui::mainSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t
     else if (bumped) _snd.play(Snd::BUMP);
 }
 
+// 설정 온도 입력 완료
+void Ui::commitTemp() {
+    _editTemp = false;
+    if (_editSetT != _s.temp.setT) {
+        _s.temp.setT = _editSetT;
+        Store::saveSettings(_s);
+        pushSettings(0, 0);
+        _snd.play(Snd::COMMIT);
+    }
+}
+
 // 입력 완료: 바뀐 창만 움직인다. 위치 동기는 창 칸이 "양쪽"인 잡 하나
 void Ui::commitPos(uint32_t now) {
+    (void)now;
     uint8_t mask = 0;
     cs_t t[2] = { 0, 0 };
     for (uint8_t w = 0; w < 2; w++) {
@@ -778,9 +786,6 @@ void Ui::commitPos(uint32_t now) {
         j.window = w;
         if (t[w] < 0) j.type = JobType::CLOSE;
         else { j.type = JobType::MOVE; j.target = t[w]; }
-        _indivWait = true;
-        _indivSeen = false;
-        _indivMs = now;
     }
     _pendingJob = j;
     _jobPending = !ControlTask::sendJob(j);
@@ -792,28 +797,10 @@ void Ui::mainTick(uint32_t now) {
     if (_item == Item::TEMP && _st.bootDone && !hasTemp()) selectItem(Item::SYNC, false, now);
 
     // 입력 확정: 2초 동안 변경 없음
-    if (_editTemp && now - _editMs >= INPUT_COMMIT_MS) {
-        _editTemp = false;
-        if (_editSetT != _s.temp.setT) {
-            _s.temp.setT = _editSetT;
-            Store::saveSettings(_s);
-            pushSettings(0, 0);
-            _snd.play(Snd::COMMIT);
-        }
-    }
+    if (_editTemp && now - _editMs >= INPUT_COMMIT_MS) commitTemp();
     if (_editPos && now - _editMs >= INPUT_COMMIT_MS) commitPos(now);
 
-    // 개별 항목: 개별 이동이 도착하거나, 움직이지 않는 채로 5초 동안 조작이 없으면 위치 동기로
-    if ((_item == Item::W1 || _item == Item::W2) && !_editPos) {
-        uint8_t w = _item == Item::W1 ? 0 : 1;
-        bool moving = isMovingState(_st.win[w].state);
-        if (_indivWait) {
-            if (moving) _indivSeen = true;
-            else if (_indivSeen) { selectItem(Item::SYNC, false, now); return; }
-            else if (now - _indivMs > 3000) _indivWait = false;      // 움직이지 않았음 (이미 그 자리 등)
-        }
-        if (!moving && !_indivWait && now - _selMs >= SYNC_RETURN_MS) selectItem(Item::SYNC, false, now);
-    }
+    // 개별 항목은 저절로 위치 동기로 돌아가지 않는다. 짧게 눌러 항목을 바꿀 때만 바뀐다 (2026-11-25)
 }
 
 // 사용자 글자를 화면에 맞게 넣는다. 큰 글씨는 획 6개와 소수 자리 반쪽 2개, 개별 화면은 숫자 반쪽 8개
@@ -867,8 +854,9 @@ void Ui::drawBig() {
 
     if (_item == Item::TEMP) {
         bigDecimal(Fmt::bigNumber(r0, r1, _editTemp ? _editSetT : _s.temp.setT));
+        r0[Fmt::BIG_UNIT_COL] = Fmt::G_DEGREE;      // 설정 온도
         if (moving) { r1[12] = '1'; r1[13] = s1; r1[14] = '2'; r1[15] = s2; }
-        else memcpy(r1 + 13, "SET", 3);
+        else memcpy(r1 + 11, "AUTO", 4);             // MAN과 같은 자리 (2026-11-25, 전에는 SET)
     } else {
         // 위치 동기: 낮은 쪽 창의 값. 두 창이 다르면 *
         uint8_t mask = _editPos ? _editMask : syncMask();
@@ -885,6 +873,7 @@ void Ui::drawBig() {
         if (unknown) low = PCT_UNKNOWN;
         bool differ = mask == 3 && v[0] != v[1];
         bigDecimal(Fmt::bigNumber(r0, r1, low));
+        r0[Fmt::BIG_UNIT_COL] = Fmt::G_PERCENT;     // 창 위치
         if (hasTemp()) {
             memcpy(r1 + 11, "MAN", 3);
             if (moving) { r1[14] = s1; r1[15] = s2; }
@@ -980,7 +969,6 @@ void Ui::enterMenu(uint32_t now) {
 void Ui::exitMenu() {
     _screen = Screen::MAIN;
     _lv = Level::TOP;
-    _selMs = millis();
     Alert a = { AlertType::MENU_EXIT, 0xFF, Cause::NONE };
     ControlTask::sendAlert(a);
 }

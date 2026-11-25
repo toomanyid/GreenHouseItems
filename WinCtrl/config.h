@@ -105,7 +105,6 @@ const uint32_t ESTOP_DEBOUNCE_MS     = 30;
 const uint32_t INPUT_COMMIT_MS       = 2000;  // 입력 확정 시간
 const uint32_t LONG_PRESS_MS         = 3000;
 const uint32_t SPLASH_MS             = 3000;
-const uint32_t SYNC_RETURN_MS        = 5000;  // 개별 항목에서 위치 동기로 돌아가는 시간
 const uint32_t BACKLIGHT_OFF_MS      = 300000; // 조작 없이 5분
 const uint32_t BACKLIGHT_ALARM_MS    = 1000;  // 고장, 에러, 비상정지: 1초 켜짐, 1초 꺼짐
 const uint32_t MENU_TIMEOUT_MS       = 120000; // 설정 메뉴 자동 나가기

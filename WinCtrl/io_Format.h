@@ -61,6 +61,10 @@ const char G_DOT  = 13;
 const char G_DEC  = 14;          // 소수 자리 왼쪽 반쪽. 오른쪽 반쪽은 G_DEC + 1
 const uint8_t BIG_DEC_SLOT = 6;  // G_DEC의 사용자 글자 번호
 const char G_DIFF = '*';         // 위치 동기에서 두 창 위치가 다름 (사용자 글자가 모자라 ROM 글자)
+// 큰 숫자의 단위. 소수 자리 위(윗줄 7칸, 소수 자리 왼쪽 반 위)에 쓴다. 온도는 도, 위치는 % (2026-11-25)
+const char G_DEGREE = (char)0xDF;   // HD44780 ROM(A00)의 도 기호
+const char G_PERCENT = '%';
+const uint8_t BIG_UNIT_COL = 7;
 
 // row0의 0~5칸, row1의 0~8칸에 0.1 단위 값을 큰 숫자로 쓴다. 0~99.9, 음수면 "--.-".
 // 소수 자리 숫자를 돌려준다(음수면 -1, 가운데 획). 그 반쪽은 bigDecHalf로 만들어 6, 7번에 넣는다

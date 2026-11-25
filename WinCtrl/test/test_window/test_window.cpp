@@ -135,7 +135,10 @@ static void test_settings_basics() {
     CHECK(SettingsRules::validWindow(s));
     // 위치 ↔ 백분율 (스펙 3절): 1.0 + (pos − home) × 98.9 ÷ (top − home)
     CHECK(SettingsRules::pctFromPos(HOME, HOME, 20000) == 10);
-    CHECK(SettingsRules::pctFromPos(300, HOME, 20000) == 10);          // home 아래도 1.0
+    CHECK(SettingsRules::pctFromPos(425, HOME, 20000) == 5);           // bottom~home은 0.0~1.0 비례 (2026-11-25)
+    CHECK(SettingsRules::pctFromPos(300, HOME, 20000) == 4);
+    CHECK(SettingsRules::pctFromPos(10, HOME, 20000) == 1);            // 0보다 위면 적어도 0.1
+    CHECK(SettingsRules::pctFromPos(0, HOME, 20000) == PCT_CLOSE);
     CHECK(SettingsRules::pctFromPos(20000, HOME, 20000) == 999);
     CHECK(SettingsRules::pctFromPos(25000, HOME, 20000) == 999);
     CHECK(SettingsRules::pctFromPos(8000, 2000, 15000) == 466);        // 46.6 (스펙 3절 예)
