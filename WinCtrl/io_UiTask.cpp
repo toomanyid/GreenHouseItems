@@ -201,6 +201,8 @@ private:
     bool     _wakeOnly = false;
     bool     _pressTurned = false;  // 누른 채 돌렸음: 뗄 때 짧게 누르기와 3초 누르기로 보지 않음
     int8_t   _pressTurnSum = 0;
+    bool     _pressSwitched = false; // 누른 채 돌려 모드를 바꿨음
+    uint32_t _quietUntil = 0;       // 모드 전환 뒤 뗀 때부터 이때까지 입력 무시
     uint32_t _lastInputMs = 0;
     bool     _backlight = true;
     bool     _dark = false;       // 조작이 없고 알릴 것도 없어 꺼져 있음 (첫 조작은 화면만 켬)
@@ -529,7 +531,13 @@ void Ui::readInput(uint32_t now) {
         }
     }
 
-    if (down && !_btnDown) { _btnSince = now; _longFired = false; _pressTurned = false; _pressTurnSum = 0; }
+    // 누른 채 돌려 모드를 바꾼 뒤에는 뗀 때부터 PRESS_TURN_QUIET_MS 동안 돌리기와 누름을 버린다 (2026-11-26)
+    bool quiet = (int32_t)(now - _quietUntil) < 0;
+    if (quiet) n = 0;
+    if (down && !_btnDown) {
+        _btnSince = now; _longFired = false; _pressTurned = false; _pressTurnSum = 0; _pressSwitched = false;
+        if (quiet) _wakeOnly = true;          // 이번 누름은 통째로 무시
+    }
     // 누른 채 돌리기 (시험, 2026-11-26): 평소 화면에서는 돌리기로 보내지 않고 자동/수동 선택에 쓴다
     if (down && _btnDown && n && !_wakeOnly && !_longFired && _screen == Screen::MAIN) {
         _pressTurned = true;
@@ -542,6 +550,7 @@ void Ui::readInput(uint32_t now) {
     }
     if (!down && _btnDown) {
         if (!_longFired && !_wakeOnly && !_pressTurned) onShort(now);
+        if (_pressSwitched) { _quietUntil = now + PRESS_TURN_QUIET_MS; _pressSwitched = false; }
         _wakeOnly = false;
     }
     _btnDown = down;
@@ -559,6 +568,7 @@ void Ui::onPressTurn(const EncStep* st, uint8_t n, uint32_t now) {
             _pressTurnSum = 0;
             if (_item == Item::TEMP) {
                 selectItem(Item::SYNC, true, now);
+                _pressSwitched = true;
                 _snd.play(Snd::COMMIT);
                 Serial.println("[enc] press+turn +: MANUAL (1+2)");
             } else {
@@ -569,6 +579,7 @@ void Ui::onPressTurn(const EncStep* st, uint8_t n, uint32_t now) {
             _pressTurnSum = 0;
             if (_item != Item::TEMP && hasTemp()) {
                 selectItem(Item::TEMP, true, now);
+                _pressSwitched = true;
                 _snd.play(Snd::COMMIT);
                 Serial.println("[enc] press+turn -: AUTO (temp)");
             } else {
@@ -636,7 +647,16 @@ void Ui::onSteps(const EncStep* st, uint8_t n, uint32_t now) {
         if (_screen == Screen::MAIN) mainSteps(dirs, gaps, m, now);
         else menuSteps(dirs, gaps, m, now);
     }
-    if (zig && _screen == Screen::MAIN && (_editTemp || _editPos)) {
+    if (zig && _screen == Screen::MAIN && anyMoving()) {
+        // 움직이는 중의 지그재그: 입력을 버리고 두 창 모두 정지 (2026-11-26, 전에는 짧게 누르기)
+        Alert a = { AlertType::STOP_ALL, 0xFF, Cause::NONE };
+        ControlTask::sendAlert(a);
+        cancelEdit();
+        _jobPending = false;
+        if (_item == Item::TEMP) selectItem(Item::SYNC, true, now);   // 자동으로 움직이던 것을 세우면 수동으로
+        _snd.play(Snd::CANCEL);
+        Serial.println("[enc] zigzag: STOP ALL");
+    } else if (zig && _screen == Screen::MAIN && (_editTemp || _editPos)) {
         cancelEdit();
         _snd.play(Snd::CANCEL);
         Serial.println("[enc] zigzag: input cancelled");
@@ -730,15 +750,8 @@ pct_t Ui::startPct(uint8_t w) const {
 }
 
 void Ui::mainShort(uint32_t now) {
-    // 순서: 움직이면 정지, 다음이 에러 확인, 그다음 입력 확정이나 다음 항목
-    if (anyMoving()) {
-        Alert a = { AlertType::STOP_ALL, 0xFF, Cause::NONE };
-        ControlTask::sendAlert(a);
-        cancelEdit();
-        _jobPending = false;
-        if (_item == Item::TEMP) selectItem(Item::SYNC, true, now);   // 자동으로 움직이던 것을 세우면 수동으로
-        return;
-    }
+    // 순서: 에러 확인, 그다음 입력 확정이나 다음 항목.
+    // 움직이는 중의 정지는 짧게 누르기가 아니라 지그재그(취소 입력)로 한다 (2026-11-26 변경)
     if (_log.hasUnacked() || _st.win[0].state == WinState::FAULT || _st.win[1].state == WinState::FAULT) {
         ackOne();
         return;
