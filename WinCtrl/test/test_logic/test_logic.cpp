@@ -516,6 +516,32 @@ static void test_uisim_plant() {
     CHECK(w[0].pos() == 0);
 }
 
+// 상태 LED: 부팅 중 계속 켜짐, 정상은 1초에 0.1초, 에러는 0.2초 간격 (스펙 7절)
+static void test_status_led() {
+    Dispatcher d;
+    Settings st;
+    SettingsRules::defaults(st);
+    d.begin(Model::W50, st, 0);
+    CHECK(d.statusLedOn(0) && d.statusLedOn(550));           // 부팅 중
+    uint32_t now = 0;
+    for (; now < 3000; now += CONTROL_PERIOD_MS) {
+        ControlInputs in = {};
+        in.now = now;
+        in.estopMv = SIM_24V_MV;
+        in.sensor[0] = in.sensor[1] = SensorState::ABSENT;
+        d.step(in);
+    }
+    CHECK(d.bootDone());
+    CHECK(d.statusLedOn(5000) && d.statusLedOn(5090));
+    CHECK(!d.statusLedOn(5100) && !d.statusLedOn(5550) && !d.statusLedOn(5999));
+    d.setUnackedError(true);
+    CHECK(d.statusLedOn(5200) && d.statusLedOn(5399));
+    CHECK(!d.statusLedOn(5400) && !d.statusLedOn(5599));
+    CHECK(d.statusLedOn(5600));
+    d.setUnackedError(false);
+    CHECK(!d.statusLedOn(5600));
+}
+
 // 지그재그 취소 판정 (+3 -3 +3, 1초 안)
 static bool zigRun(Fmt::Zigzag& z, const int8_t* seq, uint8_t n, uint32_t t0, uint32_t dt) {
     bool hit = false;
@@ -557,6 +583,7 @@ static void test_auto_state() {
 
 int main() {
     RUN(test_zigzag);
+    RUN(test_status_led);
     RUN(test_auto_state);
     RUN(test_format_values);
     RUN(test_format_small);

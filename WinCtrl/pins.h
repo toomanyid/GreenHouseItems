@@ -21,13 +21,14 @@ const uint8_t PIN_M2_RPWM      = 14;
 const uint8_t PIN_M2_LPWM      = 15;
 const uint8_t PIN_M2_EN        = 16;
 const uint8_t PIN_RELAY_FET_A  = 17;  // MC 코일 +24V 쪽 FET
-// 18, 19, 20번은 여유 (19, 20은 직결 USB 핀)
+// 19, 20번은 여유 (직결 USB 핀)
 const uint8_t PIN_RELAY_FET_B  = 21;  // GND 쪽 FET
 const uint8_t PIN_MODEL_JUMPER = 39;  // 모델 구분: 열림(HIGH) 300W, GND(LOW) 50W
 const uint8_t PIN_ENC_A        = 41;
 const uint8_t PIN_ENC_B        = 42;
 const uint8_t PIN_ENC_SW       = 47;
 
-// 피에조와 내장 LED는 보드마다 38/48이 바뀐다. 받은 보드로 확인 후 고친다.
+// 피에조는 보드에 따라 38/48(내장 LED 자리)이 바뀔 수 있다. 받은 보드로 확인 후 고친다.
 const uint8_t PIN_BUZZER       = 38;
-const uint8_t PIN_STATUS_LED   = 48;
+// 상태 LED (함 앞면): GPIO18 → 저항 1kΩ 안팎 → LED → GND. HIGH면 켜짐 (2026-11-26, 전에는 48 자리만 잡아 둠)
+const uint8_t PIN_STATUS_LED   = 18;

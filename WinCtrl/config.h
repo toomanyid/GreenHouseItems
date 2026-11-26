@@ -119,6 +119,10 @@ const uint32_t LONG_PRESS_MS         = 3000;
 const uint32_t SPLASH_MS             = 3000;
 const uint32_t BACKLIGHT_OFF_MS      = 300000; // 조작 없이 5분
 const uint32_t BACKLIGHT_ALARM_MS    = 1000;  // 고장, 에러, 비상정지: 1초 켜짐, 1초 꺼짐
+// 상태 LED (스펙 7절, 2026-11-26): 부팅 중 계속 켜짐, 정상은 1초마다 0.1초, 에러는 0.2초 켜짐/0.2초 꺼짐
+const uint32_t STATUS_LED_PERIOD_MS  = 1000;
+const uint32_t STATUS_LED_ON_MS      = 100;
+const uint32_t STATUS_LED_FAST_MS    = 200;
 const uint32_t MENU_TIMEOUT_MS       = 120000; // 설정 메뉴 자동 나가기
 const uint32_t ENC_VALID_WINDOW_MS   = 500;   // 같은 방향 칸 사이가 이보다 길면 빨리 돌리기로 보지 않음
 const uint32_t ENC_FAST_MS           = 80;    // 칸 사이가 이보다 짧으면 위치 5씩 (임시)

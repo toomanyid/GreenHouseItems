@@ -209,3 +209,14 @@ void Dispatcher::fillStatus(Status& st) const {
     st.eventCount = _eventCount;
     for (uint8_t i = 0; i < EVENT_RING_SIZE; i++) st.events[i] = _events[i];
 }
+
+bool Dispatcher::statusLedOn(uint32_t now) const {
+    if (!_bootDone) return true;
+    bool err = _unacked || _estop.value() || _relay.fault();
+    for (uint8_t i = 0; i < 2; i++) {
+        WinState st = _w[i].state();
+        if (st == WinState::FAULT || st == WinState::ESTOP) err = true;
+    }
+    if (err) return (now / STATUS_LED_FAST_MS) % 2 == 0;
+    return now % STATUS_LED_PERIOD_MS < STATUS_LED_ON_MS;
+}

@@ -8,6 +8,7 @@
 #include "dev_MotorDriver.h"
 #include "dev_Relay.h"
 #include "dev_TempSensor.h"
+#include "dev_StatusLed.h"
 #include "pins.h"
 
 namespace {
@@ -19,6 +20,7 @@ QueueHandle_t     s_alerts = nullptr;
 SemaphoreHandle_t s_statusMutex = nullptr;
 SemaphoreHandle_t s_settingsMutex = nullptr;
 volatile bool     s_alertOverflow = false;
+volatile bool     s_unacked = false;       // 화면 태스크가 씀
 
 Status      s_status;          // 상태 복사본 (뮤텍스로 보호)
 Status      s_work;            // 제어 태스크가 채우는 쪽
@@ -30,6 +32,7 @@ HomeSensor  s_sensor[2];
 MotorDriver s_motor[2];
 RelayDriver s_relay;
 TempSensor  s_temp;
+StatusLed   s_led;
 
 void setupWatchdog() {
 #if defined(ESP_IDF_VERSION_MAJOR) && ESP_IDF_VERSION_MAJOR >= 5
@@ -77,6 +80,8 @@ void controlLoop(void*) {
         ControlOutputs out = s_disp.step(in);
         for (uint8_t i = 0; i < 2; i++) s_motor[i].drive(out.dir[i], out.duty[i], now);
         s_relay.set(out.fetA, out.fetB);
+        s_disp.setUnackedError(s_unacked);
+        s_led.set(s_disp.statusLedOn(now));
 
         // 3. 얼럿이 없었으면 잡 하나. 전원 켤 때 점검이 끝나기 전에는 꺼내지 않는다
         if (!hadAlert && s_disp.bootDone()) {
@@ -126,6 +131,8 @@ void begin(Model model, const Settings& s) {
     s_sensor[0].begin(PIN_S1, now);
     s_sensor[1].begin(PIN_S2, now);
     s_temp.begin(PIN_TEMP_SENSE);
+    s_led.begin(PIN_STATUS_LED);
+    s_led.set(true);                // 부팅 중 계속 켜짐
     s_pending = s;
     s_disp.begin(model, s, now);
     s_disp.fillStatus(s_status);
@@ -156,6 +163,8 @@ bool sendSettings(const Settings& s, uint8_t timesMask, uint8_t calMask) {
     j.calMask = calMask;
     return sendJob(j);
 }
+
+void setUnackedError(bool on) { s_unacked = on; }
 
 void getStatus(Status& out) {
     xSemaphoreTake(s_statusMutex, portMAX_DELAY);

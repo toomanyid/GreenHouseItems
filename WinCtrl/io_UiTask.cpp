@@ -400,6 +400,7 @@ static void benchLog(const Status& st, uint32_t now) {
 void Ui::tick() {
     uint32_t now = millis();
     ControlTask::getStatus(_st);
+    ControlTask::setUnackedError(_log.hasUnacked());
 #ifdef WINCTRL_BENCH
     benchLog(_st, now);
 #endif

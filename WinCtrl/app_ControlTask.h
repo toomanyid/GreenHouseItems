@@ -19,4 +19,7 @@ namespace ControlTask {
     bool sendSettings(const Settings& s, uint8_t timesMask, uint8_t calMask);
 
     void getStatus(Status& out);         // 상태 복사본을 통째로 복사
+
+    // 미확인 에러가 있는지 (화면 태스크가 매 주기). 상태 LED를 빠르게 깜빡이는 데 쓴다
+    void setUnackedError(bool on);
 }

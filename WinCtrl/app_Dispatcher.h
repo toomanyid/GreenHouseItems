@@ -40,6 +40,11 @@ public:
     void fillStatus(Status& st) const;
 
     bool bootDone() const { return _bootDone; }
+
+    // 상태 LED를 켤지 (스펙 7절). 부팅 중 계속 켜짐, 고장, 미확인 에러, 비상정지는 빠르게, 그 밖은 1초에 한 번 짧게
+    bool statusLedOn(uint32_t now) const;
+    // 미확인 에러 여부는 에러 기록을 가진 화면 태스크가 알려 준다
+    void setUnackedError(bool on) { _unacked = on; }
     const Window& window(uint8_t i) const { return _w[i]; }
 
 private:
@@ -66,6 +71,7 @@ private:
     bool        _menu = false;
     bool        _manual = false;     // 위치 항목을 고름 (온도제어 멈춤)
     bool        _relayFaultLogged = false;
+    bool        _unacked = false;
 
     uint32_t    _eventCount = 0;
     ErrorEvent  _events[EVENT_RING_SIZE] = {};
