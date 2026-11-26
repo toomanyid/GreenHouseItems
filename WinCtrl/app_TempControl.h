@@ -29,6 +29,10 @@ public:
     // 모터에 직접 목표를 넣었거나 정지, 고장, 센서 끊김이 있으면 처음 크기로
     void resetStep() { _streak = 0; _lastDir = 0; }
 
+    // 설정 온도가 바뀌면 판단 주기를 기다리지 않고 다음 tick에서 판단한다 (2026-11-26).
+    // 멈춤(메뉴, 수동) 중이면 풀린 뒤 첫 tick에서 판단한다
+    void decideNow() { _decideNow = true; }
+
     int16_t  predicted() const { return _pred; }
     int16_t  slope() const     { return _slope; }
     // 다음 판단까지 남은 초 (마지막 tick 시각 기준, 화면 표시용)
@@ -55,4 +59,5 @@ private:
     int16_t  _slope = 0;
     uint8_t  _streak = 0;      // 같은 방향으로 연속해서 움직인 횟수
     int8_t   _lastDir = 0;
+    bool     _decideNow = false;
 };

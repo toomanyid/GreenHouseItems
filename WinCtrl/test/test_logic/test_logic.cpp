@@ -263,6 +263,28 @@ static void test_temp_control() {
     t += 60000;
     n = tc.tick(t, true, 276, false, v, jobs);
     CHECK(n == 1 && jobs[0].window == 0);
+    // 설정 온도를 바꾸면 주기를 기다리지 않고 바로 판단한다
+    v[1].eligible = true;
+    v[0].posState = v[1].posState = PosState::VALID;
+    v[0].pos = v[1].pos = 1000;
+    t += 60000;
+    tc.tick(t, true, 276, false, v, jobs);                   // 방금 판단함
+    t += 1000;
+    CHECK(tc.tick(t, true, 276, false, v, jobs) == 0);       // 주기 전: 판단 없음
+    ts.setT = 260;
+    tc.setSettings(ts);
+    tc.decideNow();
+    t += 1000;
+    n = tc.tick(t, true, 276, false, v, jobs);
+    CHECK(n == 2 && jobs[0].type == JobType::MOVE && jobs[0].target > 1000);
+    t += 1000;
+    CHECK(tc.tick(t, true, 276, false, v, jobs) == 0);       // 한 번만
+    // 멈춤 중에 바꾸면 풀린 뒤 첫 tick에서
+    tc.decideNow();
+    t += 1000;
+    CHECK(tc.tick(t, true, 276, true, v, jobs) == 0);
+    t += 1000;
+    CHECK(tc.tick(t, true, 276, false, v, jobs) == 2);
 }
 
 // ------------------------------------------------------------

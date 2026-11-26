@@ -102,11 +102,13 @@ bool Dispatcher::job(const Job& j, uint32_t now) {
 
 void Dispatcher::settingsChanged(const Settings& s, uint8_t timesMask, uint8_t calMask) {
     bool wasAuto = _s.temp.sensorAuto;
+    bool setChanged = s.temp.setT != _s.temp.setT;
     _s = s;
     for (uint8_t i = 0; i < 2; i++) {
         _w[i].settingsChanged(s.win[i], (timesMask >> i) & 1, (calMask >> i) & 1);
     }
     _temp.setSettings(s.temp);
+    if (setChanged) _temp.decideNow();            // 설정 온도를 바꾸면 바로 판단 (2026-11-26)
     if (!s.temp.sensorAuto) _tempFound = false;
     else if (!wasAuto) _tempFound = _tempValid;   // 끔에서 자동으로: 지금 값이 유효하면 씀
 }

@@ -90,9 +90,10 @@ uint8_t TempControl::tick(uint32_t now, bool valid, int16_t temp, bool paused,
         _wasPaused = false;
         resetStep();                      // 메뉴에서 나오면 처음 크기부터
         _lastDecisionMs = now;
-        return 0;
+        if (!_decideNow) return 0;
     }
-    if (now - _lastDecisionMs < (uint32_t)_t.periodS * 1000) return 0;
+    if (!_decideNow && now - _lastDecisionMs < (uint32_t)_t.periodS * 1000) return 0;
+    _decideNow = false;
     _lastDecisionMs = now;
 
     int16_t hi = _t.setT + _t.deadband;
