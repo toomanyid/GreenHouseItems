@@ -529,6 +529,7 @@ static void test_zigzag() {
     const int8_t fix[]   = { 1,1,1,1,1,1,1,1, -1 };               // 넘쳐서 한 칸 되돌림
     const int8_t back[]  = { 1,1,1,1, -1,-1,-1 };                 // 넘쳐서 되돌림 (묶음 2개)
     const int8_t lead[]  = { 1, -1, 1,1,1, -1,-1,-1, 1,1,1 };     // 앞의 튐은 무시
+    const int8_t neg[]   = { -1,-1,-1, 1,1,1, -1,-1,-1 };         // - 로 시작해도 같음
     Fmt::Zigzag z;
     CHECK(zigRun(z, ok, 9, 1000, 120));          // 0.96초
     z.reset(); CHECK(!zigRun(z, ok, 9, 1000, 130));    // 1.04초: 늦음
@@ -537,6 +538,7 @@ static void test_zigzag() {
     z.reset(); CHECK(!zigRun(z, fix, 9, 1000, 50));
     z.reset(); CHECK(!zigRun(z, back, 7, 1000, 50));
     z.reset(); CHECK(zigRun(z, lead, 11, 1000, 50));
+    z.reset(); CHECK(zigRun(z, neg, 9, 1000, 120));
     // 한 번 맞으면 처음부터: 바로 이어서 묶음 2개만 해도 안 걸림
     z.reset(); CHECK(zigRun(z, ok, 9, 1000, 50)); CHECK(!zigRun(z, pair, 6, 2000, 50));
 }
