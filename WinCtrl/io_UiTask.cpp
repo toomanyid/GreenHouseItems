@@ -653,7 +653,7 @@ void Ui::onSteps(const EncStep* st, uint8_t n, uint32_t now) {
         ControlTask::sendAlert(a);
         cancelEdit();
         _jobPending = false;
-        if (_item == Item::TEMP) selectItem(Item::SYNC, true, now);   // 자동으로 움직이던 것을 세우면 수동으로
+        // 자동이었으면 자동 그대로 둔다. 다음 판단 주기에 온도에 따라 다시 움직일 수 있다 (2026-11-26 변경)
         _snd.play(Snd::CANCEL);
         Serial.println("[enc] zigzag: STOP ALL");
     } else if (zig && _screen == Screen::MAIN && (_editTemp || _editPos)) {
@@ -762,12 +762,14 @@ void Ui::mainShort(uint32_t now) {
         else commitPos(now);
         return;
     }
+    // 짧게 누르기는 수동 항목(1+2 → 1 → 2) 안에서만 넘긴다. 자동과 수동 사이는
+    // 누른 채 돌리기로만 바꾼다 (2026-11-26 변경)
     Item next;
     switch (_item) {
-    case Item::TEMP: next = Item::SYNC; break;
+    case Item::TEMP: return;
     case Item::SYNC: next = Item::W1; break;
     case Item::W1:   next = Item::W2; break;
-    default:         next = hasTemp() ? Item::TEMP : Item::SYNC; break;
+    default:         next = Item::SYNC; break;
     }
     selectItem(next, true, now);
 }
