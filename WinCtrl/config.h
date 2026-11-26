@@ -116,6 +116,7 @@ const uint32_t POS_ACCEL_GAP_MS      = 300;
 const uint8_t  POS_ACCEL_X2_FROM     = 5;
 const uint8_t  POS_ACCEL_X5_FROM     = 8;
 const uint32_t LONG_PRESS_MS         = 3000;
+const uint8_t  PRESS_TURN_STEPS      = 2;     // 누른 채 같은 방향 이만큼 돌리면 자동/수동 선택 (시험, 2026-11-26)
 const uint32_t SPLASH_MS             = 3000;
 const uint32_t BACKLIGHT_OFF_MS      = 300000; // 조작 없이 5분
 const uint32_t BACKLIGHT_ALARM_MS    = 1000;  // 고장, 에러, 비상정지: 1초 켜짐, 1초 꺼짐

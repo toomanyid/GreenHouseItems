@@ -117,6 +117,7 @@ private:
     void readInput(uint32_t now);
     void onShort(uint32_t now);
     void onLong(uint32_t now);
+    void onPressTurn(const EncStep* st, uint8_t n, uint32_t now);
     void onSteps(const EncStep* st, uint8_t n, uint32_t now);
     int32_t stepSize(int32_t base, uint32_t intervalMs) const;
 
@@ -198,6 +199,8 @@ private:
     uint32_t _btnSince = 0;
     bool     _longFired = false;
     bool     _wakeOnly = false;
+    bool     _pressTurned = false;  // 누른 채 돌렸음: 뗄 때 짧게 누르기와 3초 누르기로 보지 않음
+    int8_t   _pressTurnSum = 0;
     uint32_t _lastInputMs = 0;
     bool     _backlight = true;
     bool     _dark = false;       // 조작이 없고 알릴 것도 없어 꺼져 있음 (첫 조작은 화면만 켬)
@@ -526,18 +529,54 @@ void Ui::readInput(uint32_t now) {
         }
     }
 
-    if (down && !_btnDown) { _btnSince = now; _longFired = false; }
-    if (down && !_longFired && !_wakeOnly && now - _btnSince >= LONG_PRESS_MS) {
+    if (down && !_btnDown) { _btnSince = now; _longFired = false; _pressTurned = false; _pressTurnSum = 0; }
+    // 누른 채 돌리기 (시험, 2026-11-26): 평소 화면에서는 돌리기로 보내지 않고 자동/수동 선택에 쓴다
+    if (down && _btnDown && n && !_wakeOnly && !_longFired && _screen == Screen::MAIN) {
+        _pressTurned = true;
+        onPressTurn(steps, n, now);
+        n = 0;
+    }
+    if (down && !_longFired && !_wakeOnly && !_pressTurned && now - _btnSince >= LONG_PRESS_MS) {
         _longFired = true;
         onLong(now);
     }
     if (!down && _btnDown) {
-        if (!_longFired && !_wakeOnly) onShort(now);
+        if (!_longFired && !_wakeOnly && !_pressTurned) onShort(now);
         _wakeOnly = false;
     }
     _btnDown = down;
 
     if (n) onSteps(steps, n, now);
+}
+
+// 누른 채 돌리기: + 쪽 PRESS_TURN_STEPS칸이면 수동(1+2), - 쪽이면 자동(온도) (시험, 2026-11-26)
+void Ui::onPressTurn(const EncStep* st, uint8_t n, uint32_t now) {
+    if (_st.estop || !_st.bootDone) return;
+    for (uint8_t i = 0; i < n; i++) {
+        if ((_pressTurnSum > 0 && st[i].dir < 0) || (_pressTurnSum < 0 && st[i].dir > 0)) _pressTurnSum = 0;
+        _pressTurnSum = (int8_t)(_pressTurnSum + st[i].dir);
+        if (_pressTurnSum >= (int8_t)PRESS_TURN_STEPS) {
+            _pressTurnSum = 0;
+            if (_item == Item::TEMP) {
+                selectItem(Item::SYNC, true, now);
+                _snd.play(Snd::COMMIT);
+                Serial.println("[enc] press+turn +: MANUAL (1+2)");
+            } else {
+                _snd.play(Snd::BUMP);
+                Serial.println("[enc] press+turn +: already manual");
+            }
+        } else if (_pressTurnSum <= -(int8_t)PRESS_TURN_STEPS) {
+            _pressTurnSum = 0;
+            if (_item != Item::TEMP && hasTemp()) {
+                selectItem(Item::TEMP, true, now);
+                _snd.play(Snd::COMMIT);
+                Serial.println("[enc] press+turn -: AUTO (temp)");
+            } else {
+                _snd.play(Snd::BUMP);
+                Serial.println(hasTemp() ? "[enc] press+turn -: already auto" : "[enc] press+turn -: no temp sensor");
+            }
+        }
+    }
 }
 
 void Ui::onShort(uint32_t now) {
