@@ -143,6 +143,7 @@ void Window::recheckSensor() {
 void Window::setEstop(bool on, uint32_t now) {
     if (on) {
         if (_state == WinState::ESTOP) return;
+        _resync = false;
         if (_state == WinState::FAULT) {
             if (_fPhase != FaultPhase::HOLD) { cut(now); _fPhase = FaultPhase::HOLD; }
             return;
@@ -445,6 +446,7 @@ void Window::applyPending(uint32_t now) {
 }
 
 void Window::settleIdle() {
+    _resync = false;
     bool atLimit = _posState == PosState::VALID && limitEnabled() && _pos >= limitPos();
     _state = atLimit ? WinState::LIMIT : WinState::IDLE;
 }
@@ -519,7 +521,10 @@ void Window::checkRunning(const WindowInputs& in) {
         onNoCurrent(now, in.sensor);
         return;
     }
-    if (!releasing && _mon.stopped()) {
+    // 목표로 내려가는 중(MOVING 하강)에는 끊김을 보지 않는다. 부하가 가벼우면 하강 전류가 경계 아래로
+    // 내려가 리밋 도달로 잘못 보기 때문 (2026-11-26). CLOSE, 원점 잡기, 측정의 하강은 하한을 끊김으로 찾으므로 그대로 본다
+    bool downMove = _state == WinState::MOVING && _dir < 0;
+    if (!releasing && !downMove && _mon.stopped()) {
         onCurrentStopped(now, in.sensor);
         return;
     }
@@ -626,12 +631,25 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
     } else {
         // 상한에서 전류가 끊김: top으로 고쳐 쓴다.
         // top 근처(LIMIT_NEAR_TOP_PCT 안)면 정상 도착, 그보다 아래면 위치가 어긋난 것이라 고장
-        bool nearTop = _posState == PosState::VALID
-                    && (int64_t)(maxPos() - _pos) * 100 <= (int64_t)maxPos() * LIMIT_NEAR_TOP_PCT;
-        if (_posState == PosState::VALID) _pos = maxPos();
+        bool valid = _posState == PosState::VALID;
+        cs_t calc = _pos;
+        bool nearTop = valid && (int64_t)(maxPos() - _pos) * 100 <= (int64_t)maxPos() * LIMIT_NEAR_TOP_PCT;
+        if (valid) _pos = maxPos();
         if (nearTop && (_state == WinState::MOVING || _state == WinState::HOMING)) {
             _goal = Goal::NONE;
             settleIdle();
+            return;
+        }
+        // top보다 일찍 닿음: 고장으로 세우지 않고, 계산 위치에서 가까운 끝점에서 위치를 다시 맞춘 뒤
+        // 목표로 간다. 자동 운전이 멈추지 않게 하려는 것이다. 몇 번이든 이렇게 한다 (2026-11-26)
+        if (valid && _state == WinState::MOVING) {
+            _resync = true;
+            if ((int64_t)calc * 2 >= (int64_t)maxPos()) {
+                beginGoal(now);                         // top 쪽: 지금 top에 있다고 보고 목표로 (내려감)
+            } else {
+                _posState = PosState::UNKNOWN;          // bottom 쪽: 내려가 원점을 다시 잡고 목표로
+                goReverseWait(WinState::MOVING, -1, now);
+            }
             return;
         }
         raiseFault(Cause::LIMIT_HIT, now);
@@ -658,6 +676,7 @@ void Window::raiseFault(Cause c, uint32_t now) {
     cut(now);
     // 해제 후 바로 다시 고장 나면 위치를 "모름"으로 돌린다
     if (_everCleared && now - _clearMs < REFAULT_WINDOW_MS) _posState = PosState::UNKNOWN;
+    _resync = false;
     _state = WinState::FAULT;
     _fault = c;
     _fPhase = FaultPhase::HOLD;
@@ -846,6 +865,7 @@ void Window::fillStatus(WindowStatus& st) const {
     st.sensorAbsent = _known == Known::ABSENT;
     st.sensorActive = sensorActive();
     st.sensorError = _sensorErrMode && _s.homeSensAuto;
+    st.resync = _resync && isMovingState(_state);
     st.sensor = _lastSensor;
     st.home = _s.homeTime;
     st.maxPos = maxPos();

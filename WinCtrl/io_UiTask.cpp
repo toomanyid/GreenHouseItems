@@ -963,7 +963,9 @@ void Ui::drawBig() {
                 if (r == -2 || remain == -2) remain = -2;
                 else if (r > remain) remain = r;
             }
-            if (remain == -1) {
+            if (_st.win[0].resync || _st.win[1].resync) {
+                memcpy(r1 + 10, "RESYNC", 6);           // 일찍 리밋에 닿아 다시 맞추는 중 (2026-11-26)
+            } else if (remain == -1) {
                 memcpy(r1 + 10, "SL", 2);
                 Fmt::waitSecs3(r1 + 13, _st.temp.nextS);
             } else {

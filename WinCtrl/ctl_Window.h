@@ -139,6 +139,7 @@ private:
     int8_t    _lastCutDir = 0;
     int8_t    _atLimit = 0;             // 내장 리밋에 닿아 선 쪽 (-1 하한, +1 상한, 0 아님)
     bool      _releasing = false;       // 이번 구동이 리밋에서 반대로 떠나는 구동인지
+    bool      _resync = false;          // 올라가다 일찍 리밋에 닿아 끝점에서 다시 맞추고 목표로 가는 중 (2026-11-26)
     uint32_t  _lastCutMs = 0;
     uint32_t  _bootGuardMs = 0;
     uint32_t  _lastTickMs = 0;

@@ -142,6 +142,7 @@ struct WindowStatus {
     bool        sensorAbsent;   // "없음"으로 정해짐 (OFF인 채로 하한). 둘 다 false면 아직 모름
     bool        sensorActive;   // 지금 센서로 원점을 잡는지
     bool        sensorError;    // 원점 센서 에러 표시 중
+    bool        resync;         // 일찍 리밋에 닿아 끝점에서 위치를 다시 맞추는 중 (2026-11-26)
     SensorState sensor;
     cs_t        home;           // home 위치 (bottom = 0)
     cs_t        maxPos;         // top 위치

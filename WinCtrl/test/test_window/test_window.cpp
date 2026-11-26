@@ -397,19 +397,57 @@ static void test_no_current() {
     CHECK(st.fault == Cause::NO_CURRENT);
 }
 
-static void test_limit_hit_fault_on_top() {
+// 올라가다 일찍 상한에 닿으면 고장이 아니라 가까운 끝점에서 다시 맞추고 목표로 (2026-11-26)
+static void test_limit_early_top_resync() {
     Sim sim;
     sim.p.u = 3000;
     sim.begin(baseSettings());
     sim.move(10000);
     CHECK(sim.runUntilIdle(200000));
-    sim.p.top = 12000;            // 상한이 생각보다 낮음
+    sim.p.top = 12000;            // 상한이 생각보다 낮음 (계산 12000은 top 쪽이 가깝다)
     sim.move(15000);
-    CHECK(sim.runUntil(WinState::FAULT, 100000));
-    WindowStatus st;
-    sim.w.fillStatus(st);
-    CHECK(st.fault == Cause::LIMIT_HIT);
-    CHECK(sim.w.pos() == sim.w.maxPos());
+    bool sawResync = false;
+    for (int i = 0; i < 100000 && !(sawResync && sim.w.state() == WinState::IDLE); i++) {
+        sim.step();
+        WindowStatus st; sim.w.fillStatus(st);
+        if (st.resync) sawResync = true;
+        if (sim.w.state() == WinState::FAULT) break;
+    }
+    CHECK(sawResync);
+    CHECK(sim.w.state() == WinState::IDLE);
+    CHECK(sim.w.pos() == 15000);
+    CHECK_NEAR(sim.p.u, 12000 - 5000, 60);   // top으로 고쳐 쓰고 5000만큼 내려옴
+    WindowStatus st; sim.w.fillStatus(st);
+    CHECK(!st.resync);
+}
+
+// 계산 위치가 bottom 쪽이면 내려가 원점을 다시 잡고 목표로
+static void test_limit_early_bottom_side_resync() {
+    Sim sim;
+    sim.p.u = 3000;
+    sim.begin(baseSettings());
+    sim.move(3000);
+    CHECK(sim.runUntilIdle(200000));
+    sim.p.u = 19000;              // 수동 스위치로 창이 올라가 있음 (계산은 3000)
+    sim.move(6000);
+    CHECK(sim.runUntilIdle(400000));
+    CHECK(sim.w.state() == WinState::IDLE);
+    CHECK(sim.w.pos() == 6000);
+    CHECK_NEAR(sim.p.u, 6000, 60);
+}
+
+// 목표로 내려가는 중에는 끊김을 보지 않는다 (2026-11-26)
+static void test_down_move_ignores_stop() {
+    Sim sim;
+    sim.p.u = 3000;
+    sim.begin(baseSettings());
+    sim.move(10000);
+    CHECK(sim.runUntilIdle(200000));
+    sim.p.u = 2000;               // 실제는 계산보다 낮다
+    sim.move(5000);
+    CHECK(sim.runUntilIdle(200000));
+    CHECK(sim.w.state() == WinState::IDLE);
+    CHECK(sim.w.pos() == 5000);
 }
 
 // top 근처(2% 안)에서 상한 리밋에 닿으면 도착으로 본다 (2026-11-25)
@@ -427,18 +465,17 @@ static void test_limit_near_top_is_arrival() {
     CHECK_NEAR(sim.p.u, 19800, 1);
 }
 
-static void test_limit_below_near_top_is_fault() {
+static void test_limit_below_near_top_resync() {
     Sim sim;
     sim.p.u = 3000;
     sim.begin(baseSettings());
     sim.move(10000);
     CHECK(sim.runUntilIdle(200000));
-    sim.p.top = 19400;            // 3% 낮음: 위치가 어긋남
+    sim.p.top = 19400;            // 3% 낮음: 위치가 어긋남. 고장이 아니라 top으로 고쳐 쓰고 도착
     sim.move(20000);
-    CHECK(sim.runUntil(WinState::FAULT, 200000));
-    WindowStatus st;
-    sim.w.fillStatus(st);
-    CHECK(st.fault == Cause::LIMIT_HIT);
+    CHECK(sim.runUntilIdle(200000));
+    CHECK(sim.w.state() == WinState::IDLE);
+    CHECK(sim.w.pos() == sim.w.maxPos());
 }
 
 static void test_timeout() {
@@ -912,7 +949,7 @@ int main() {
     RUN(test_down_ratio);
     RUN(test_close_and_reopen);
     RUN(test_limit_near_top_is_arrival);
-    RUN(test_limit_below_near_top_is_fault);
+    RUN(test_limit_below_near_top_resync);
     RUN(test_calibration_limit_release);
     RUN(test_open_from_bottom_limit_release);
     RUN(test_overload_during_limit_release);
@@ -921,7 +958,9 @@ int main() {
     RUN(test_upper_limit);
     RUN(test_overload_backoff);
     RUN(test_no_current);
-    RUN(test_limit_hit_fault_on_top);
+    RUN(test_limit_early_top_resync);
+    RUN(test_limit_early_bottom_side_resync);
+    RUN(test_down_move_ignores_stop);
     RUN(test_timeout);
     RUN(test_estop);
     RUN(test_stop_alert);

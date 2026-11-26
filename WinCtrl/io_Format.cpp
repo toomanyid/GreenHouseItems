@@ -152,6 +152,14 @@ void smallLine(char* out, const WindowStatus& w, uint8_t num, bool sensorErr) {
     if (w.state == WinState::FAULT) { put(out, 2, faultLong(w.fault)); return; }
     if (sensorErr) { put(out, 2, "ERR SENSOR"); return; }
 
+    if (w.resync) {
+        // 일찍 리밋에 닿아 끝점에서 다시 맞추는 중: "1 RESYNC>45.0 v" (2026-11-26)
+        put(out, 2, "RESYNC");
+        out[8] = '>';
+        if (w.target < 0) put(out, 9, "CLOSE");
+        else { pct4(b, targetPct(w)); put(out, 9, b); }
+        return;
+    }
     switch (w.state) {
     case WinState::HOMING:
         put(out, 2, "HOME");
