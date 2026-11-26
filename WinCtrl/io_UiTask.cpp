@@ -568,7 +568,7 @@ void Ui::onSteps(const EncStep* st, uint8_t n, uint32_t now) {
     int8_t dirs[16];
     uint32_t gaps[16];
     uint8_t m = 0;
-    // 지그재그(+3 -3 +3 -3, 1초 안): 판정 전 칸은 평소처럼 입력에 들어가고, 판정되면 입력을 버린다.
+    // 지그재그(+3 -3 +3, 1초 안): 판정 전 칸은 평소처럼 입력에 들어가고, 판정되면 입력을 버린다.
     // 판정 뒤 이어 비트는 칸은 ZIGZAG_QUIET_MS 동안 멈출 때까지 버린다 (2026-11-25 시험)
     bool zig = false;
     for (uint8_t i = 0; i < n; i++) {

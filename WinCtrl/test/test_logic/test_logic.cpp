@@ -516,27 +516,29 @@ static void test_uisim_plant() {
     CHECK(w[0].pos() == 0);
 }
 
-// 지그재그 취소 판정 (+3 -3 +3 -3, 1초 안)
+// 지그재그 취소 판정 (+3 -3 +3, 1초 안)
 static bool zigRun(Fmt::Zigzag& z, const int8_t* seq, uint8_t n, uint32_t t0, uint32_t dt) {
     bool hit = false;
     for (uint8_t i = 0; i < n; i++) hit |= z.feed(seq[i], t0 + i * dt);
     return hit;
 }
 static void test_zigzag() {
-    const int8_t ok[]    = { 1,1,1, -1,-1,-1, 1,1,1, -1,-1,-1 };
-    const int8_t two[]   = { 1,1, -1,-1, 1,1, -1,-1, 1,1, -1,-1 };      // 2칸씩은 아님
-    const int8_t three[] = { 1,1,1, -1,-1,-1, 1,1,1 };                  // 묶음 3개는 아님
-    const int8_t fix[]   = { 1,1,1,1,1,1,1,1, -1 };                     // 넘쳐서 한 칸 되돌림
-    const int8_t lead[]  = { 1, -1, 1,1,1, -1,-1,-1, 1,1,1, -1,-1,-1 };  // 앞의 튐은 무시
+    const int8_t ok[]    = { 1,1,1, -1,-1,-1, 1,1,1 };
+    const int8_t two[]   = { 1,1, -1,-1, 1,1, -1,-1, 1,1 };       // 2칸씩은 아님
+    const int8_t pair[]  = { 1,1,1, -1,-1,-1 };                   // 묶음 2개는 아님
+    const int8_t fix[]   = { 1,1,1,1,1,1,1,1, -1 };               // 넘쳐서 한 칸 되돌림
+    const int8_t back[]  = { 1,1,1,1, -1,-1,-1 };                 // 넘쳐서 되돌림 (묶음 2개)
+    const int8_t lead[]  = { 1, -1, 1,1,1, -1,-1,-1, 1,1,1 };     // 앞의 튐은 무시
     Fmt::Zigzag z;
-    CHECK(zigRun(z, ok, 12, 1000, 80));          // 0.88초
-    z.reset(); CHECK(!zigRun(z, ok, 12, 1000, 100));   // 1.1초: 늦음
-    z.reset(); CHECK(!zigRun(z, two, 12, 1000, 50));
-    z.reset(); CHECK(!zigRun(z, three, 9, 1000, 50));
+    CHECK(zigRun(z, ok, 9, 1000, 120));          // 0.96초
+    z.reset(); CHECK(!zigRun(z, ok, 9, 1000, 130));    // 1.04초: 늦음
+    z.reset(); CHECK(!zigRun(z, two, 10, 1000, 50));
+    z.reset(); CHECK(!zigRun(z, pair, 6, 1000, 50));
     z.reset(); CHECK(!zigRun(z, fix, 9, 1000, 50));
-    z.reset(); CHECK(zigRun(z, lead, 14, 1000, 50));
-    // 한 번 맞으면 처음부터: 바로 이어서 반만 해도 안 걸림
-    z.reset(); CHECK(zigRun(z, ok, 12, 1000, 50)); CHECK(!zigRun(z, three, 9, 2000, 50));
+    z.reset(); CHECK(!zigRun(z, back, 7, 1000, 50));
+    z.reset(); CHECK(zigRun(z, lead, 11, 1000, 50));
+    // 한 번 맞으면 처음부터: 바로 이어서 묶음 2개만 해도 안 걸림
+    z.reset(); CHECK(zigRun(z, ok, 9, 1000, 50)); CHECK(!zigRun(z, pair, 6, 2000, 50));
 }
 
 static void test_auto_state() {
