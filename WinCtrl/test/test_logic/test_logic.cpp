@@ -592,6 +592,22 @@ static void test_zigzag() {
 }
 
 static void test_auto_state() {
+    // 이동이 끝날 때까지 남은 초
+    WindowStatus w = {};
+    w.state = WinState::IDLE;
+    CHECK(Fmt::moveRemainS(w, 10000, 8000) == -1);
+    w.state = WinState::MOVING; w.posState = PosState::VALID; w.dir = 1; w.pos = 2000; w.target = 3250;
+    CHECK(Fmt::moveRemainS(w, 10000, 8000) == 13);           // 12.5초 → 올림
+    w.dir = -1; w.target = 1000;
+    CHECK(Fmt::moveRemainS(w, 10000, 8000) == 8);            // 10초 × 하강/상승 = 8초
+    w.state = WinState::CLOSING; w.target = -1;
+    CHECK(Fmt::moveRemainS(w, 10000, 8000) == 16);           // bottom까지 20초 × 0.8
+    w.state = WinState::REVERSE_WAIT; w.nextDir = 1; w.dir = 0; w.target = 2500;
+    CHECK(Fmt::moveRemainS(w, 10000, 8000) == 6);            // 5초 + 정지 1초
+    w.state = WinState::HOMING;
+    CHECK(Fmt::moveRemainS(w, 10000, 8000) == -2);
+    w.state = WinState::CALIBRATING;
+    CHECK(Fmt::moveRemainS(w, 10000, 8000) == -1);
     CHECK(std::strcmp(Fmt::autoState(286, 280, 5), "OP") == 0);
     CHECK(std::strcmp(Fmt::autoState(285, 280, 5), "HD") == 0);    // 경계는 그대로
     CHECK(std::strcmp(Fmt::autoState(275, 280, 5), "HD") == 0);

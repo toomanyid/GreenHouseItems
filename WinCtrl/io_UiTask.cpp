@@ -948,17 +948,29 @@ void Ui::drawBig() {
     {   // 큰 글씨 화면은 온도(자동)만 쓴다
         bigDecimal(Fmt::bigNumber(r0, r1, _editTemp ? _editSetT : _s.temp.setT));
         // 설정 온도에는 단위를 붙이지 않는다. 단위는 현재 온도의 °C로 보인다 (2026-11-25)
-        // 아랫줄 10~15칸: 자동 판단 OP(열 차례) / CL(닫을 차례) / HD(그대로)와 다음 판단까지 남은 초 "HD  45".
-        // 창이 움직이는 중이면 시간 대신 방향 "OP   ^" (2026-11-25, 전에는 AUTO / 1^2^). 온도가 끊기면 비운다
+        // 아랫줄 10~15칸 (2026-11-26 변경): 쉬는 중이면 "SL  45"(다음 판단까지 남은 초),
+        // 움직이는 중이면 "OP  12" / "CL  12"(이번 이동이 끝날 때까지 남은 초, 두 창 중 긴 쪽).
+        // 원점을 잡는 중처럼 남은 시간을 모르면 "OP  --". 온도가 끊기면 비운다
         if (hasTemp() && _st.temp.valid) {
-            memcpy(r1 + 10, Fmt::autoState(_st.temp.predicted, _s.temp.setT, _s.temp.deadband), 2);
-            char dir = 0;
-            for (uint8_t w = 0; w < 2 && !dir; w++) {
-                char c = Fmt::statusChar(_st.win[w]);
-                if (c == '^' || c == 'v') dir = c;
+            int32_t remain = -1;
+            int8_t dir = 0;
+            for (uint8_t w = 0; w < 2; w++) {
+                int32_t r = Fmt::moveRemainS(_st.win[w], _st.win[w].maxPos, _s.win[w].downTime);
+                if (r == -1) continue;
+                const WindowStatus& ws = _st.win[w];
+                int8_t d = ws.state == WinState::REVERSE_WAIT ? ws.nextDir : ws.dir;
+                if (!dir) dir = d;
+                if (r == -2 || remain == -2) remain = -2;
+                else if (r > remain) remain = r;
             }
-            if (dir) r1[15] = dir;
-            else Fmt::waitSecs3(r1 + 13, _st.temp.nextS);
+            if (remain == -1) {
+                memcpy(r1 + 10, "SL", 2);
+                Fmt::waitSecs3(r1 + 13, _st.temp.nextS);
+            } else {
+                memcpy(r1 + 10, dir < 0 ? "CL" : "OP", 2);
+                if (remain == -2) memcpy(r1 + 14, "--", 2);
+                else Fmt::waitSecs3(r1 + 13, (uint16_t)(remain > 999 ? 999 : remain));
+            }
         }
     }
     _lcd.setLine(0, r0);

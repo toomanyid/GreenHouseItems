@@ -90,6 +90,10 @@ const char* autoState(int16_t predicted, int16_t setT, int16_t deadband);
 // 다음 판단까지 남은 초를 3글자 오른쪽 맞춤으로 ("  8", " 45", "600")
 void waitSecs3(char* out, uint16_t s);
 
+// 이번 이동이 끝날 때까지 남은 초 (자동 화면, 2026-11-26). 움직이지 않으면 -1.
+// 내려갈 때는 하강 시간으로 환산하고, 방향 전환 정지 1초를 더한다. 위치를 모르면(원점 잡기) -2
+int32_t moveRemainS(const WindowStatus& w, cs_t upTime, cs_t downTime);
+
 // 지그재그(+3 -3 +3, 1초 안) 판정. 엔코더 칸마다 feed()하고, 완성되는 칸에서 true (2026-11-25)
 class Zigzag {
 public:

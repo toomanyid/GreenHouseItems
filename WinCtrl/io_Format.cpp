@@ -343,4 +343,17 @@ bool Zigzag::feed(int8_t dir, uint32_t ms) {
     return false;
 }
 
+int32_t moveRemainS(const WindowStatus& w, cs_t upTime, cs_t downTime) {
+    WinState st = w.state;
+    if (!isMovingState(st) || st == WinState::CALIBRATING) return -1;
+    if (st == WinState::HOMING || w.posState == PosState::UNKNOWN) return -2;
+    int8_t dir = st == WinState::REVERSE_WAIT ? w.nextDir : w.dir;
+    cs_t target = w.target < 0 ? 0 : w.target;          // CLOSE는 bottom까지
+    cs_t dist = target > w.pos ? target - w.pos : w.pos - target;
+    int64_t cs = dist;
+    if (dir < 0 && upTime > 0 && downTime > 0) cs = (int64_t)dist * downTime / upTime;
+    if (st == WinState::REVERSE_WAIT) cs += (cs_t)(REVERSE_WAIT_MS / 10);
+    return (int32_t)((cs + 99) / 100);
+}
+
 }  // namespace Fmt
