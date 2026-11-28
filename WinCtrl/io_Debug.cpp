@@ -6,7 +6,7 @@
 namespace Dbg {
 
 static volatile uint8_t s_level = BASIC;   // 켤 때는 늘 1 (저장하지 않음)
-static char    s_line[24];
+static char    s_line[40];
 static uint8_t s_len = 0;
 
 uint8_t level() { return s_level; }
@@ -18,6 +18,7 @@ static const char* levelName(uint8_t l) {
 static void help() {
     Serial.printf("[dbg] level %u (%s). commands: d1 basic, d2 action, d3 detail, d? help\n",
                   (unsigned)s_level, levelName(s_level));
+    Serial.println("[dbg] time | time YYYY-MM-DD HH:MM[:SS] | stats [n, default 144 = 1 day] | raw [hours, default 1]");
 }
 
 bool command(const char* line) {
@@ -36,18 +37,18 @@ bool command(const char* line) {
         Serial.printf("[dbg] level %u (%s)\n", (unsigned)s_level, levelName(s_level));
         return true;
     }
-    Serial.printf("[dbg] unknown command '%s'. d1 d2 d3 d?\n", c);
+    Serial.printf("[dbg] unknown command '%s'. d1 d2 d3 d? time stats raw\n", c);
     return false;
 }
 
-void poll() {
+void poll(bool (*extra)(const char* line)) {
     while (Serial.available() > 0) {
         int ch = Serial.read();
         if (ch < 0) break;
         if (ch == '\r' || ch == '\n') {
             if (s_len > 0) {
                 s_line[s_len] = 0;
-                command(s_line);
+                if (!extra || !extra(s_line)) command(s_line);
                 s_len = 0;
             }
             continue;

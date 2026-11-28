@@ -1,4 +1,5 @@
 #pragma once
+#include "io_Stats.h"
 #include <stdint.h>
 #include "Types.h"
 
@@ -44,6 +45,11 @@ void notSetLines(char* r0, char* r1, uint8_t mask);
     // last면 오른쪽 아래에 OK, 아니면 > (다음 장이 있음)
     enum BasicPage : uint8_t { BASIC_MC, BASIC_HOME, BASIC_TEMP };
     void basicLines(char* r0, char* r1, uint8_t page, uint8_t noHome, bool last);
+    // 2004 LCD 아래 두 줄 (개발 시험용, 20글자). 최근 10분 성적
+    //   "12:34 E0.42 B 87 M 3"  시:분, 평균 오차(도), 불감대 안 %, 움직인 횟수
+    //   "+1.2 -0.8 G640  WAIT"  가장 높이/낮게 벗어난 것(도), 효과의 세기, 효과를 기다리는 중
+    void devLines(char* a, char* b, bool timeOk, uint8_t hh, uint8_t mm, const StatRolling& r,
+                  int32_t gain, bool settling);
 
 // 작은 글씨 화면의 창 한 줄 (스펙 7절). "1 45.0>99.9    ^", "1 ERR OVERLOAD !"
 // warn: 그 창의 미확인 경고(없으면 NONE). 고장이 아니므로 창이 움직여도 문구를 남기고 줄 끝 글자는 그대로

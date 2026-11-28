@@ -21,6 +21,10 @@ public:
 
     bool begin(uint8_t sda, uint8_t scl);
     void setLine(uint8_t row, const char* text);   // 16글자보다 짧으면 빈칸으로 채움
+    // 2004 아래 두 줄(3, 4째 줄, 20글자). 개발 시험용 정보 (2026-11-28). 2004가 아니면 무시한다
+    static const uint8_t DEV_COLS = 20;
+    void setDevLine(uint8_t row, const char* text);
+    bool hasDevRows() const { return _ok && !_oled && _addr == 0x26; }
     void setGlyph(uint8_t slot, const uint8_t rows[8]);   // 사용자 글자 (5x8, 줄마다 아래 5비트). 바뀐 것만 보냄
     void flush();                                   // 바뀐 글자만 보냄
     void setBacklight(bool on);
@@ -52,6 +56,8 @@ private:
     bool    _bl = true;
     char    _want[ROWS][COLS];
     char    _shown[ROWS][COLS];
+    char    _devWant[2][DEV_COLS];
+    char    _devShown[2][DEV_COLS];
     uint8_t _glyph[GLYPHS][8] = {};
     uint8_t _glyphDirty = 0;        // 비트마다 보낼 사용자 글자
     bool    _txErr = false;

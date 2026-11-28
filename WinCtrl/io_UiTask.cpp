@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
+#include <stdlib.h>
 #include "io_UiTask.h"
 #include "io_Format.h"
 #include "io_Sound.h"
@@ -12,6 +14,9 @@
 #include "dev_Buzzer.h"
 #include "pins.h"
 #include "io_Debug.h"
+#include "io_Stats.h"
+#include "dev_Rtc.h"
+#include "Clock.h"
 
 namespace {
 
@@ -31,7 +36,8 @@ enum Fmt_ : uint8_t {
     F_MINOFF,    // 분, 0이면 OFF
     F_OFFSET,    // 0.1도 부호 있음
     F_ONOFF,
-    F_HAVE       // USED/NONE (MC)
+    F_HAVE,      // USED/NONE (MC)
+    F_NUM        // 정수 그대로 (시계)
 };
 
 struct FieldDef {
@@ -85,6 +91,16 @@ const FieldDef HW_FIELDS[HW_COUNT] = {
     { "T SENSOR",     0, 1, 1, F_SENS },
 };
 
+// 시계 (RTC DS3231, 2026-11-28). 저장하면 초는 0으로 RTC에 넣는다
+enum ClockField : uint8_t { C_YEAR, C_MONTH, C_DAY, C_HOUR, C_MIN, C_COUNT };
+const FieldDef CLOCK_FIELDS[C_COUNT] = {
+    { "YEAR",   Clock::YEAR_MIN, Clock::YEAR_MAX, 1, F_NUM },
+    { "MONTH",  1, 12, 1, F_NUM },
+    { "DAY",    1, 31, 1, F_NUM },
+    { "HOUR",   0, 23, 1, F_NUM },
+    { "MINUTE", 0, 59, 1, F_NUM },
+};
+
 enum SoundField : uint8_t { S_CLICK, S_ALARM, S_COUNT };
 const FieldDef SOUND_FIELDS[S_COUNT] = {
     { "CLICK SOUND", 0, 1, 1, F_ONOFF },
@@ -92,9 +108,9 @@ const FieldDef SOUND_FIELDS[S_COUNT] = {
 };
 
 const char* const TOP_ITEMS[] = {
-    "HARDWARE", "WINDOW 1", "WINDOW 2", "CALIBRATE", "TEMP CONTROL", "DIAG", "SOUND", "ERROR LOG", "INFO", "EXIT"
+    "HARDWARE", "WINDOW 1", "WINDOW 2", "CALIBRATE", "TEMP CONTROL", "DIAG", "SOUND", "ERROR LOG", "INFO", "CLOCK", "EXIT"
 };
-const uint8_t TOP_COUNT = 10;
+const uint8_t TOP_COUNT = 11;
 
 // NOTICE: 켤 때의 경고 화면들. 짧게 누를 때마다 다음 장, 마지막 장에서 누르면 MAIN
 enum class Screen : uint8_t { SPLASH, NOTICE, MAIN, MENU };
@@ -104,7 +120,7 @@ enum class Level : uint8_t {
     TOP, LIST, EDIT, CAL_SELECT, CAL_CONFIRM, CAL_RUN, CAL_RESULT, CAL_SAVE, DIAG, LOG, INFO, MSG
 };
 
-enum class ListKind : uint8_t { WIN, TEMP, SOUND, HW };
+enum class ListKind : uint8_t { WIN, TEMP, SOUND, HW, CLOCK };
 
 // 평소 화면에서 고른 항목이 곧 모드다. 온도는 자동, 나머지는 수동 (스펙 7절)
 enum class Item : uint8_t { TEMP, SYNC, W1, W2 };
@@ -146,6 +162,25 @@ private:
     bool anyMoving() const;
     bool anyFault() const;
     void debugLog(uint32_t now);
+    // 시계와 제어 성적 (개발 시험용, 2026-11-28)
+    void syncClock(uint32_t now);
+    bool clockNow(uint32_t now, DateTime& t) const;
+    uint32_t stampNow(uint32_t now, bool& rtc) const;
+    void saveClockField(uint32_t now);
+    void statsTick(uint32_t now);
+    void printStamp(uint32_t stamp) const;
+public:
+    bool serialCommand(const char* line);
+private:
+    Rtc      _rtc;
+    bool     _clockOk = false;
+    uint32_t _clockBase = 0, _clockMs = 0, _clockSyncMs = 0;
+    mutable DateTime _clkEdit = {};   // 메뉴에서 고치는 중인 시각
+    Stats    _stats;
+    RawLog   _raw;
+    uint32_t _secMs = 0;
+    uint32_t _slotKey = 0xFFFFFFFF, _rawKey = 0xFFFFFFFF;
+    bool     _prevMoving = false;
     Status   _dbgPrev = {};
     bool     _dbgHave = false;
     uint32_t _dbgLastSt = 0;
@@ -306,6 +341,17 @@ void Ui::begin(Model model, const Settings& s, const ErrorLog& log, uint16_t boo
     _enc.begin(PIN_ENC_A, PIN_ENC_B, PIN_ENC_SW);
     _lcd.begin(PIN_LCD_SDA, PIN_LCD_SCL);
     logLcd("begin");
+    // RTC (LCD와 같은 I2C), 10분 요약(플래시), 30초 원본(PSRAM 60일)
+    _rtc.begin();
+    syncClock(millis());
+    Store::statsBegin();
+    {
+        const uint32_t cap = 60UL * 2880;
+        StatRaw* buf = (StatRaw*)ps_malloc(cap * sizeof(StatRaw));
+        _raw.begin(buf, cap);
+        Serial.printf("[stat] raw 30s log in PSRAM: %s (%lu records = %lu days)\n", buf ? "OK" : "FAILED",
+                      (unsigned long)(buf ? cap : 0), (unsigned long)(buf ? cap / 2880 : 0));
+    }
     _startMs = millis();
     _lastInputMs = _startMs;
     _lastLcdInit = _startMs;
@@ -527,6 +573,223 @@ void Ui::debugLog(uint32_t now) {
 }
 
 // ============================================================
+//  시계와 제어 성적 (개발 시험용, 2026-11-28)
+// ============================================================
+static int16_t posPct(const WindowStatus& w) {
+    if (w.posState == PosState::CLOSED) return 0;
+    if (w.posState != PosState::VALID) return -1;
+    return (int16_t)SettingsRules::pctFromPos(w.pos, w.home, w.maxPos);
+}
+
+// RTC를 읽어 시계를 맞춘다. 켤 때와 1시간마다. 읽지 못하면 하던 대로 보드 시간으로 센다
+void Ui::syncClock(uint32_t now) {
+    _clockSyncMs = now;
+    DateTime t;
+    bool was = _clockOk;
+    if (_rtc.read(t)) {
+        _clockOk = true;
+        _clockBase = Clock::toSeconds(t);
+        _clockMs = now;
+        if (!was) Serial.printf("[clock] RTC %04u-%02u-%02u %02u:%02u:%02u\n", t.year, t.month, t.day, t.hour, t.minute, t.second);
+        return;
+    }
+    if (was) return;                          // 한 번 맞췄으면 보드 시간으로 이어 센다
+    if (!_rtc.present()) Serial.println("[clock] no RTC (DS3231 at 0x68): time not set");
+    else Serial.println("[clock] RTC time lost (battery?): set in SETUP > CLOCK or 'time YYYY-MM-DD HH:MM'");
+}
+
+bool Ui::clockNow(uint32_t now, DateTime& t) const {
+    if (!_clockOk) return false;
+    t = Clock::fromSeconds(_clockBase + (now - _clockMs) / 1000);
+    return true;
+}
+
+uint32_t Ui::stampNow(uint32_t now, bool& rtc) const {
+    rtc = _clockOk;
+    if (_clockOk) return _clockBase + (now - _clockMs) / 1000;
+    return (now / 1000) | STAT_TIME_UPTIME;
+}
+
+void Ui::printStamp(uint32_t stamp) const {
+    if (stamp & STAT_TIME_UPTIME) { Serial.printf("up+%lus", (unsigned long)(stamp & ~STAT_TIME_UPTIME)); return; }
+    DateTime t = Clock::fromSeconds(stamp);
+    Serial.printf("%04u-%02u-%02u %02u:%02u:%02u", t.year, t.month, t.day, t.hour, t.minute, t.second);
+}
+
+// 메뉴에서 시각 한 칸을 저장: 지금 시각에서 그 칸만 바꿔 RTC에 넣는다
+void Ui::saveClockField(uint32_t now) {
+    DateTime t;
+    if (!clockNow(now, t)) t = _clkEdit;
+    switch (_idx) {
+    case C_YEAR: t.year = (uint16_t)_val; break;
+    case C_MONTH: t.month = (uint8_t)_val; break;
+    case C_DAY: t.day = (uint8_t)_val; break;
+    case C_HOUR: t.hour = (uint8_t)_val; break;
+    default: t.minute = (uint8_t)_val; t.second = 0; break;
+    }
+    uint8_t dim = Clock::daysInMonth(t.year, t.month);
+    if (t.day > dim) t.day = dim;
+    if (!_rtc.present()) _rtc.begin();
+    if (_rtc.write(t)) {
+        _clkEdit = t;
+        _clockOk = false;                     // 새로 읽어 맞춘다
+        syncClock(now);
+        _snd.play(Snd::COMMIT);
+        Serial.printf("[clock] set %04u-%02u-%02u %02u:%02u:%02u\n", t.year, t.month, t.day, t.hour, t.minute, t.second);
+        _lv = Level::LIST;
+    } else {
+        _snd.play(Snd::ERROR_BEEP);
+        message("NOT SAVED", "NO RTC", now, false, Level::LIST);
+    }
+}
+
+// 1초마다: 성적 한 칸, 10분마다 요약(플래시), 30초마다 원본(PSRAM), 2004 아래 두 줄
+void Ui::statsTick(uint32_t now) {
+    if (_secMs == 0) { _secMs = now; return; }
+    if (now - _secMs < 1000) return;
+    _secMs += 1000;
+    if (now - _secMs > 5000) _secMs = now;    // 오래 밀렸으면(긴 출력 등) 따라잡지 않는다
+    if (now - _clockSyncMs >= 3600000UL) syncClock(now);
+
+    StatSample smp = {};
+    smp.active = _st.temp.found && _st.temp.valid && !_st.temp.paused;   // 자동이고 센서 정상
+    smp.temp = _st.temp.temp;
+    smp.setT = _s.temp.setT;
+    smp.deadband = _s.temp.deadband;
+    bool moving = _st.win[0].dir != 0 || _st.win[1].dir != 0;
+    smp.moving = moving;
+    smp.moveStart = moving && !_prevMoving;
+    _prevMoving = moving;
+    smp.pos1 = posPct(_st.win[0]);
+    smp.pos2 = posPct(_st.win[1]);
+    smp.gain = _st.temp.gain;
+    smp.warn = _log.hasUnacked();
+    _stats.second(smp);
+
+    bool rtc;
+    uint32_t stamp = stampNow(now, rtc);
+    uint32_t sec = stamp & ~STAT_TIME_UPTIME;
+    uint32_t slot = sec / 600;                // 10분 칸 (RTC가 있으면 시계의 0, 10, 20분...)
+    if (_slotKey == 0xFFFFFFFF) _slotKey = slot;
+    else if (slot != _slotKey) {
+        _slotKey = slot;
+        StatSummary sum;
+        _stats.finish(stamp, rtc, sum);
+        bool ok = Store::statsAppend(sum);
+        if (Dbg::on(Dbg::ACTION))
+            Serial.printf("[stat] 10min saved%s: rms %u.%02uC in-band %u%% over %+d under %+d moves %u motor %us active %u%%\n",
+                          ok ? "" : " FAILED", sum.rmsC / 100, sum.rmsC % 100, sum.inBand, sum.maxOver, sum.maxUnder,
+                          sum.moves, sum.motorS, sum.activePct);
+    }
+    uint32_t r30 = sec / 30;
+    if (r30 != _rawKey) {
+        _rawKey = r30;
+        StatRaw r;
+        r.time = stamp;
+        r.temp = _st.temp.valid ? _st.temp.temp : (int16_t)-32768;
+        r.setT = _s.temp.setT;
+        r.pos1 = smp.pos1;
+        r.pos2 = smp.pos2;
+        r.slope = _st.temp.slope;
+        r.gain10 = (uint16_t)(_st.temp.gain / 10 > 65535 ? 65535 : _st.temp.gain / 10);
+        _raw.add(r);
+    }
+#ifdef WINCTRL_DEVINFO
+    // 2004 아래 두 줄: 시:분과 최근 10분 성적 (개발 시험 빌드만)
+    if (_lcd.hasDevRows()) {
+        DateTime t = {};
+        bool ok = clockNow(now, t);
+        char a[21], b[21];
+        Fmt::devLines(a, b, ok, t.hour, t.minute, _stats.rolling(), _st.temp.gain, _st.temp.settling);
+        _lcd.setDevLine(0, a);
+        _lcd.setDevLine(1, b);
+    }
+#endif
+}
+
+struct DumpCtx { const Ui* ui; uint32_t n; };
+
+// 정수를 소수로 찍는다 (float를 쓰지 않는다): div 10 → "−1.2", div 100 → "0.05"
+static void printFixed(int32_t v, int32_t div) {
+    int32_t a = v < 0 ? -v : v;
+    if (div == 100) Serial.printf("%s%ld.%02ld", v < 0 ? "-" : "", (long)(a / 100), (long)(a % 100));
+    else Serial.printf("%s%ld.%ld", v < 0 ? "-" : "", (long)(a / 10), (long)(a % 10));
+}
+
+// 시리얼 명령: time, stats, raw. 맡았으면 true
+bool Ui::serialCommand(const char* line) {
+    while (*line == ' ') line++;
+    char w[8] = {};
+    uint8_t k = 0;
+    while (line[k] && line[k] != ' ' && k < sizeof(w) - 1) { w[k] = (char)tolower((unsigned char)line[k]); k++; }
+    const char* arg = line + k;
+    while (*arg == ' ') arg++;
+    uint32_t now = millis();
+
+    if (strcmp(w, "time") == 0) {
+        if (*arg) {
+            DateTime t;
+            if (!Clock::parse(arg, t)) { Serial.println("[clock] format: time YYYY-MM-DD HH:MM[:SS]"); return true; }
+            if (!_rtc.present()) _rtc.begin();
+            if (!_rtc.write(t)) { Serial.println("[clock] set FAILED: no RTC"); return true; }
+            _clockOk = false;
+            syncClock(now);
+        }
+        DateTime t;
+        if (clockNow(now, t)) Serial.printf("[clock] %04u-%02u-%02u %02u:%02u:%02u (RTC %s)\n", t.year, t.month, t.day,
+                                            t.hour, t.minute, t.second, _rtc.present() ? "ok" : "not answering");
+        else Serial.printf("[clock] not set (RTC %s)\n", _rtc.present() ? (_rtc.stopped() ? "time lost" : "ok") : "none");
+        return true;
+    }
+    if (strcmp(w, "stats") == 0) {
+        uint32_t n = *arg ? (uint32_t)strtoul(arg, nullptr, 10) : 144;
+        Serial.printf("[stats] %lu of %lu summaries (10 min each)\n", (unsigned long)(n < Store::statsCount() ? n : Store::statsCount()),
+                      (unsigned long)Store::statsCount());
+        Serial.println("time,setC,avgC,rmsC,inBand%,overC,underC,moves,motorS,pos1,pos2,gain,active%,warn");
+        DumpCtx ctx = { this, 0 };
+        Store::statsEach(n, [](const StatSummary& x, void* c) {
+            const Ui* ui = ((DumpCtx*)c)->ui;
+            ui->printStamp(x.time);
+            Serial.printf(",");  printFixed(x.setT, 10);
+            Serial.printf(",");  printFixed(x.avgT, 10);
+            Serial.printf(",");  printFixed(x.rmsC, 100);
+            Serial.printf(",%u,", x.inBand);
+            printFixed(x.maxOver, 10);  Serial.printf(",");
+            printFixed(x.maxUnder, 10); Serial.printf(",%u,%u,", x.moves, x.motorS);
+            if (x.pos1 == 0xFFFF) Serial.printf("-,"); else Serial.printf("%u.%u,", x.pos1 / 10, x.pos1 % 10);
+            if (x.pos2 == 0xFFFF) Serial.printf("-,"); else Serial.printf("%u.%u,", x.pos2 / 10, x.pos2 % 10);
+            Serial.printf("%lu,%u,%u\n", (unsigned long)x.gain10 * 10, x.activePct, x.flags & 1);
+        }, &ctx);
+        Serial.println("[stats] end");
+        return true;
+    }
+    if (strcmp(w, "raw") == 0) {
+        uint32_t hours = *arg ? (uint32_t)strtoul(arg, nullptr, 10) : 1;
+        uint32_t n = hours * 120;
+        uint32_t cnt = _raw.count();
+        if (n > cnt) n = cnt;
+        Serial.printf("[raw] %lu of %lu records (30 s each)\n", (unsigned long)n, (unsigned long)cnt);
+        Serial.println("time,tempC,setC,pos1,pos2,slopeC/min,gain");
+        for (uint32_t i = cnt - n; i < cnt; i++) {
+            const StatRaw& r = _raw.at(i);
+            printStamp(r.time);
+            Serial.printf(",");
+            if (r.temp == -32768) Serial.printf("-"); else printFixed(r.temp, 10);
+            Serial.printf(",");  printFixed(r.setT, 10);
+            Serial.printf(",");
+            if (r.pos1 < 0) Serial.printf("-"); else printFixed(r.pos1, 10);
+            Serial.printf(",");
+            if (r.pos2 < 0) Serial.printf("-"); else printFixed(r.pos2, 10);
+            Serial.printf(",");  printFixed(r.slope, 100);
+            Serial.printf(",%lu\n", (unsigned long)r.gain10 * 10);
+        }
+        Serial.println("[raw] end");
+        return true;
+    }
+    return false;
+}
+
+// ============================================================
 //  주기
 // ============================================================
 void Ui::tick() {
@@ -534,8 +797,9 @@ void Ui::tick() {
     ControlTask::getStatus(_st);
     ControlTask::setUnackedError(_log.hasUnacked());
     consumeEvents(now);
-    Dbg::poll();
+    Dbg::poll([](const char* l) { return s_ui.serialCommand(l); });
     debugLog(now);
+    statsTick(now);
 
     // 보내지 못한 잡과 설정은 다시 보낸다
     if (_jobPending && ControlTask::sendJob(_pendingJob)) _jobPending = false;
@@ -1260,6 +1524,7 @@ uint8_t Ui::listCount() const {
     case ListKind::WIN:  return W_COUNT;
     case ListKind::TEMP: return T_COUNT;
     case ListKind::HW:   return HW_COUNT;
+    case ListKind::CLOCK: return C_COUNT;
     default:             return S_COUNT;
     }
 }
@@ -1269,11 +1534,21 @@ const FieldDef& Ui::field(uint8_t i) const {
     case ListKind::WIN:  return WIN_FIELDS[i];
     case ListKind::TEMP: return TEMP_FIELDS[i];
     case ListKind::HW:   return HW_FIELDS[i];
+    case ListKind::CLOCK: return CLOCK_FIELDS[i];
     default:             return SOUND_FIELDS[i];
     }
 }
 
 int32_t Ui::getField(const Settings& s, uint8_t i) const {
+    if (_list == ListKind::CLOCK) {
+        switch (i) {
+        case C_YEAR: return _clkEdit.year;
+        case C_MONTH: return _clkEdit.month;
+        case C_DAY: return _clkEdit.day;
+        case C_HOUR: return _clkEdit.hour;
+        default: return _clkEdit.minute;
+        }
+    }
     if (_list == ListKind::WIN) {
         const WindowSettings& w = s.win[_listWin];
         switch (i) {
@@ -1316,6 +1591,17 @@ int32_t Ui::getField(const Settings& s, uint8_t i) const {
 }
 
 void Ui::setField(Settings& s, uint8_t i, int32_t v) const {
+    if (_list == ListKind::CLOCK) {
+        switch (i) {
+        case C_YEAR: _clkEdit.year = (uint16_t)v; break;
+        case C_MONTH: _clkEdit.month = (uint8_t)v; break;
+        case C_DAY: _clkEdit.day = (uint8_t)v; break;
+        case C_HOUR: _clkEdit.hour = (uint8_t)v; break;
+        default: _clkEdit.minute = (uint8_t)v; break;
+        }
+        (void)s;
+        return;
+    }
     if (_list == ListKind::WIN) {
         WindowSettings& w = s.win[_listWin];
         switch (i) {
@@ -1408,6 +1694,8 @@ void Ui::fmtField(char* out, uint8_t i, int32_t v) const {
         Fmt::tenthsSigned(b, v); snprintf(out, 16, "%sC", b); break;
     case F_HAVE:
         strcpy(out, v ? "USED" : "NONE"); break;
+    case F_NUM:
+        snprintf(out, 16, "%ld", (long)v); break;
     default:
         strcpy(out, v ? "ON" : "OFF"); break;
     }
@@ -1442,6 +1730,7 @@ int32_t Ui::stepField(uint8_t i, int32_t v, int8_t dir, int32_t mul, bool& bumpe
 }
 
 void Ui::saveField(uint32_t now) {
+    if (_list == ListKind::CLOCK) { saveClockField(now); return; }
     Settings tmp = _s;
     setField(tmp, _idx, _val);
     uint8_t times = 0;
@@ -1523,6 +1812,10 @@ void Ui::menuShort(uint32_t now) {
         case 6: _list = ListKind::SOUND; _idx = 0; _lv = Level::LIST; break;
         case 7: _page = 0; _lv = Level::LOG; break;
         case 8: _page = 0; _lv = Level::INFO; break;
+        case 9:
+            // 지금 시각에서 시작한다 (RTC가 없거나 맞춘 적이 없으면 2026-01-01 00:00)
+            if (!clockNow(millis(), _clkEdit)) _clkEdit = { 2026, 1, 1, 0, 0, 0 };
+            _list = ListKind::CLOCK; _idx = 0; _lv = Level::LIST; break;
         default: exitMenu(); break;
         }
         break;
@@ -1686,11 +1979,13 @@ void Ui::drawMenu() {
     case Level::LIST:
     case Level::EDIT: {
         char left[17];
-        const char* prefix = _list == ListKind::WIN ? (_listWin == 0 ? "W1 " : "W2 ") : "";
+        const char* prefix = _list == ListKind::WIN ? (_listWin == 0 ? "W1 " : "W2 ")
+                           : (_list == ListKind::CLOCK ? "CLK " : "");
         if (_idx >= listCount()) {
             const char* title = _list == ListKind::WIN ? (_listWin == 0 ? "WINDOW 1" : "WINDOW 2")
                               : (_list == ListKind::TEMP ? "TEMP CONTROL"
-                              : (_list == ListKind::HW ? "HARDWARE" : "SOUND"));
+                              : (_list == ListKind::HW ? "HARDWARE"
+                              : (_list == ListKind::CLOCK ? "CLOCK" : "SOUND")));
             snprintf(l0, sizeof(l0), "%-16s", title);
             strcpy(l1, "BACK");
             break;

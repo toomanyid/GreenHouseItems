@@ -1,4 +1,5 @@
 #pragma once
+#include <stdlib.h>
 // PC에서 아두이노 쪽 파일의 문법만 확인하기 위한 가짜 헤더. 동작하지 않는다.
 #include <stdint.h>
 #include <stddef.h>
@@ -27,6 +28,7 @@ struct HardwareSerial {
     int read() { return -1; }
 };
 static HardwareSerial Serial;
+inline void* ps_malloc(size_t n) { return malloc(n); }
 inline void pinMode(uint8_t, uint8_t) {}
 inline void digitalWrite(uint8_t, uint8_t) {}
 inline int digitalRead(uint8_t) { return 0; }

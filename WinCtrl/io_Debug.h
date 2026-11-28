@@ -7,6 +7,7 @@
 //    2 동작: + 창 상태 바뀜, 이동 목표, 온도 판단, MC 붙음/뗌, 엔코더와 버튼, 5초마다 [alive]
 //    3 상세: + 1초마다 두 창과 전압 [st], 움직이는 동안 0.5초마다 창 줄 [win]
 //  명령(115200bps, 줄 끝 Enter): d1 d2 d3 단계 바꾸기, d 또는 d? 지금 단계와 도움말.
+//  그 밖의 명령(time, stats, raw)은 화면 태스크가 넘겨준 처리 함수가 맡는다 (2026-11-28).
 //  켤 때는 늘 1단계다. 단계는 저장하지 않는다.
 // ============================================================
 namespace Dbg {
@@ -15,7 +16,8 @@ namespace Dbg {
     uint8_t level();
     inline bool on(uint8_t l) { return level() >= l; }
     // 시리얼로 들어온 글자를 읽어 명령을 처리한다. 화면 태스크가 주기마다 부른다
-    void poll();
+    // extra가 그 줄을 맡았으면 true를 돌려준다. 아니면 d 명령으로 본다
+    void poll(bool (*extra)(const char* line) = nullptr);
     // 명령 한 줄을 처리한다 (PC 시험용으로 따로 둠). 알아들은 명령이면 true
     bool command(const char* line);
 }

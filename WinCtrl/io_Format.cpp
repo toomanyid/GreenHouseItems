@@ -163,6 +163,41 @@ void basicLines(char* r0, char* r1, uint8_t page, uint8_t noHome, bool last) {
     else r1[15] = '>';
 }
 
+static void tenthsSign(char* out, int16_t v) {     // "+1.2", "-0.8", 9.9까지
+    int16_t a = v < 0 ? -v : v;
+    if (a > 99) a = 99;
+    snprintf(out, 6, "%c%d.%d", v < 0 ? '-' : '+', a / 10, a % 10);
+}
+
+void devLines(char* a, char* b, bool timeOk, uint8_t hh, uint8_t mm, const StatRolling& r,
+              int32_t gain, bool settling) {
+    char t[6], e[6], bnd[4];
+    if (timeOk) snprintf(t, sizeof(t), "%02u:%02u", (unsigned)hh % 100, (unsigned)mm % 100);
+    else strcpy(t, "--:--");
+    if (r.n) {
+        unsigned c = r.rmsC > 999 ? 999 : r.rmsC;
+        snprintf(e, sizeof(e), "%u.%02u", c / 100, c % 100);
+        snprintf(bnd, sizeof(bnd), "%3u", (unsigned)r.inBand);
+    } else {
+        strcpy(e, "-.--");
+        strcpy(bnd, "---");
+    }
+    snprintf(a, 21, "%s E%s B%s M%2u", t, e, bnd, (unsigned)(r.moves > 99 ? 99 : r.moves));
+    char o[6], u[6], g[7];
+    if (r.n) { tenthsSign(o, r.maxOver); tenthsSign(u, r.maxUnder); }
+    else { strcpy(o, " -  "); strcpy(u, " -  "); }
+    if (gain > 0) snprintf(g, sizeof(g), "%ld", (long)(gain > 99999 ? 99999 : gain));
+    else strcpy(g, "---");
+    snprintf(b, 21, "%s %s G%-5s%s", o, u, g, settling ? "WAIT" : "    ");
+    char* lines[2] = { a, b };
+    for (uint8_t k = 0; k < 2; k++) {        // 20글자로 채운다
+        char* p = lines[k];
+        size_t n = strlen(p);
+        while (n < 20) p[n++] = ' ';
+        p[20] = 0;
+    }
+}
+
 void smallLine(char* out, const WindowStatus& w, uint8_t num, Cause warn) {
     char b[12];
     blank(out, 16);

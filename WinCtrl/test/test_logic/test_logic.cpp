@@ -8,6 +8,8 @@
 #include "../../app_Dispatcher.h"
 #include "../../dev_Sim.h"
 #include "../../Settings.h"
+#include "../../Clock.h"
+#include "../../io_Stats.h"
 
 static bool eq(const char* a, const char* b) {
     bool ok = std::strcmp(a, b) == 0;
@@ -784,6 +786,80 @@ static void test_settings_load() {
     CHECK(SettingsRules::load(nullptr, 0, m) == SettingsRules::LOAD_NONE);
 }
 
+// 시계 계산 (RTC DS3231, 2026-11-28)
+static void test_clock() {
+    DateTime a = { 2026, 11, 28, 21, 40, 5 };
+    uint32_t s = Clock::toSeconds(a);
+    DateTime b = Clock::fromSeconds(s);
+    CHECK(b.year == 2026 && b.month == 11 && b.day == 28 && b.hour == 21 && b.minute == 40 && b.second == 5);
+    DateTime leap = { 2028, 2, 29, 23, 59, 59 };
+    CHECK(Clock::valid(leap));
+    DateTime n = Clock::fromSeconds(Clock::toSeconds(leap) + 1);
+    CHECK(n.year == 2028 && n.month == 3 && n.day == 1 && n.hour == 0 && n.minute == 0 && n.second == 0);
+    DateTime bad = { 2027, 2, 29, 0, 0, 0 };
+    CHECK(!Clock::valid(bad));
+    CHECK(Clock::daysInMonth(2026, 4) == 30 && Clock::daysInMonth(2000, 2) == 29 && Clock::daysInMonth(2100, 2) == 28);
+    DateTime p;
+    CHECK(Clock::parse("2026-11-28 07:05", p) && p.hour == 7 && p.minute == 5 && p.second == 0);
+    CHECK(Clock::parse("2026-01-31 23:59:58", p) && p.second == 58);
+    CHECK(!Clock::parse("2026-02-30 10:00", p) && !Clock::parse("12:00", p) && !Clock::parse("2023-01-01 00:00", p));
+    CHECK(Clock::toSeconds({ 2000, 1, 1, 0, 0, 0 }) == 0);
+}
+
+// 제어 성적: 최근 10분, 10분 요약, 30초 원본 (2026-11-28)
+static void test_stats() {
+    Stats st;
+    StatSample x = {};
+    x.active = true; x.setT = 280; x.deadband = 5; x.pos1 = 120; x.pos2 = -1; x.gain = 640;
+    // 300초는 +0.3도(불감대 안), 300초는 -1.0도(밖)
+    for (int i = 0; i < 300; i++) { x.temp = 283; x.moving = i < 10; x.moveStart = i == 0; st.second(x); }
+    for (int i = 0; i < 300; i++) { x.temp = 270; x.moving = false; x.moveStart = false; st.second(x); }
+    StatRolling r = st.rolling();
+    CHECK(r.n == 600 && r.inBand == 50);
+    CHECK(r.maxOver == 3 && r.maxUnder == -10);
+    CHECK(r.moves == 1 && r.motorS == 10);
+    CHECK(r.rmsC == 73);                                   // sqrt((9+100)/2)=7.38 → 0.73도
+    // 성적에 세지 않는 시간(수동, 센서 끊김)은 빠진다
+    x.active = false; x.temp = 400;
+    for (int i = 0; i < 100; i++) st.second(x);
+    r = st.rolling();
+    CHECK(r.n == 500 && r.maxOver == 3);
+    StatSummary sum;
+    st.finish(12345, true, sum);
+    CHECK(sum.time == 12345 && sum.setT == 280 && sum.avgT == 276);    // (283×300 + 270×300) / 600 = 276.5 → 276
+    CHECK(sum.inBand == 50 && sum.rmsC == 73 && sum.maxOver == 3 && sum.maxUnder == -10);
+    CHECK(sum.moves == 1 && sum.motorS == 10 && sum.pos1 == 120 && sum.pos2 == 0xFFFF);
+    CHECK(sum.gain10 == 64 && sum.activePct == 85 && sum.flags == 2);
+    st.finish(12945, false, sum);                          // 빈 구간
+    CHECK(sum.activePct == 0 && sum.rmsC == 0 && sum.moves == 0 && sum.flags == 0);
+    CHECK(StatMath::isqrt(0) == 0 && StatMath::isqrt(99) == 9 && StatMath::isqrt(100) == 10);
+
+    // 30초 원본 고리: 가득 차면 가장 오래된 것부터 덮어쓴다
+    StatRaw buf[4];
+    RawLog lg;
+    lg.begin(buf, 4);
+    for (uint32_t i = 0; i < 6; i++) { StatRaw a = {}; a.time = i; lg.add(a); }
+    CHECK(lg.count() == 4 && lg.at(0).time == 2 && lg.at(3).time == 5);
+    RawLog none;
+    none.begin(nullptr, 100);                             // PSRAM이 없으면 아무것도 담지 않는다
+    StatRaw a = {};
+    none.add(a);
+    CHECK(none.count() == 0 && none.capacity() == 0);
+
+    // 2004 아래 두 줄
+    char l0[21], l1[21];
+    StatRolling rr = {};
+    rr.n = 600; rr.rmsC = 42; rr.inBand = 87; rr.maxOver = 12; rr.maxUnder = -8; rr.moves = 3;
+    Fmt::devLines(l0, l1, true, 9, 5, rr, 640, true);
+    CHECK(eq(l0, "09:05 E0.42 B 87 M 3"));
+    CHECK(eq(l1, "+1.2 -0.8 G640  WAIT"));
+    StatRolling e = {};
+    Fmt::devLines(l0, l1, false, 0, 0, e, 0, false);
+    CHECK(eq(l0, "--:-- E-.-- B--- M 0"));
+    CHECK(eq(l1, " -    -   G---      "));
+    CHECK(strlen(l0) == 20 && strlen(l1) == 20);
+}
+
 // 상태 LED: 부팅 중 계속 켜짐, 정상은 1초에 0.1초, 에러는 0.2초 간격 (스펙 7절)
 static void test_status_led() {
     Dispatcher d;
@@ -868,6 +944,8 @@ static void test_auto_state() {
 int main() {
     RUN(test_zigzag);
     RUN(test_status_led);
+    RUN(test_clock);
+    RUN(test_stats);
     RUN(test_basic_config);
     RUN(test_settings_load);
     RUN(test_auto_state);

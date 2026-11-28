@@ -8,7 +8,7 @@ FLAGS="-std=c++11 -Wall -Wextra -Werror -Wno-unknown-warning-option -Wno-format-
 $CXX $FLAGS test/test_window/test_window.cpp ctl_Window.cpp ctl_Safety.cpp Settings.cpp -o "$OUT/test_window"
 "$OUT/test_window"
 if [ -f test/test_logic/test_logic.cpp ]; then
-  $CXX $FLAGS test/test_logic/test_logic.cpp app_TempControl.cpp ErrorLog.cpp io_Format.cpp Settings.cpp app_Dispatcher.cpp ctl_Window.cpp ctl_Safety.cpp -o "$OUT/test_logic"
+  $CXX $FLAGS test/test_logic/test_logic.cpp app_TempControl.cpp ErrorLog.cpp io_Format.cpp io_Stats.cpp Clock.cpp Settings.cpp app_Dispatcher.cpp ctl_Window.cpp ctl_Safety.cpp -o "$OUT/test_logic"
   "$OUT/test_logic"
 fi
 $CXX $FLAGS -Itest/stubs test/test_debug/test_debug.cpp io_Debug.cpp -o "$OUT/test_debug"

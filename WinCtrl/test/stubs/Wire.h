@@ -6,6 +6,7 @@ struct TwoWire {
     void setTimeOut(uint16_t) {}
     void beginTransmission(uint8_t) {}
     uint8_t endTransmission() { return 0; }
+    uint8_t endTransmission(bool) { return 0; }
     size_t write(uint8_t) { return 1; }
     uint8_t requestFrom(uint8_t, uint8_t) { return 0; }
     int read() { return -1; }

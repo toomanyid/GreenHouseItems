@@ -47,6 +47,8 @@ bool Lcd::begin(uint8_t sda, uint8_t scl) {
     Wire.setTimeOut(20);
     for (uint8_t r = 0; r < ROWS; r++)
         for (uint8_t c = 0; c < COLS; c++) { _want[r][c] = ' '; _shown[r][c] = 0; }
+    for (uint8_t r = 0; r < 2; r++)
+        for (uint8_t c = 0; c < DEV_COLS; c++) { _devWant[r][c] = ' '; _devShown[r][c] = ' '; }
     reinit();
     return _ok;
 }
@@ -86,6 +88,8 @@ void Lcd::reinit(bool clear) {
     }
     for (uint8_t r = 0; r < ROWS; r++)
         for (uint8_t c = 0; c < COLS; c++) _shown[r][c] = 0;   // 전부 다시 쓰게
+    for (uint8_t r = 0; r < 2; r++)
+        for (uint8_t c = 0; c < DEV_COLS; c++) _devShown[r][c] = clear ? ' ' : 0;   // 지웠으면 빈칸, 아니면 다시
     _glyphDirty = 0xFF;                                        // 사용자 글자도 다시
     _ok = !_txErr;
     if (!_ok) _fails++;
@@ -121,6 +125,13 @@ void Lcd::writeGlyphs() {
     _glyphDirty = 0;
 }
 
+void Lcd::setDevLine(uint8_t row, const char* text) {
+    if (row >= 2) return;
+    uint8_t c = 0;
+    for (; c < DEV_COLS && text[c]; c++) _devWant[row][c] = text[c];
+    for (; c < DEV_COLS; c++) _devWant[row][c] = ' ';
+}
+
 void Lcd::setLine(uint8_t row, const char* text) {
     if (row >= ROWS) return;
     uint8_t c = 0;
@@ -150,6 +161,19 @@ void Lcd::flush() {
             send((uint8_t)_want[r][c], true);
             if (_txErr) { _ok = false; _fails++; return; }
             _shown[r][c] = _want[r][c];
+            cursor = (int8_t)(c + 1);
+        }
+    }
+    // 2004 아래 두 줄 (DDRAM 0x14, 0x54)
+    if (!hasDevRows()) return;
+    for (uint8_t r = 0; r < 2; r++) {
+        int8_t cursor = -1;
+        for (uint8_t c = 0; c < DEV_COLS; c++) {
+            if (_devWant[r][c] == _devShown[r][c]) { cursor = -1; continue; }
+            if (cursor != (int8_t)c) command((uint8_t)(0x80 | (r ? 0x54 : 0x14) | c));
+            send((uint8_t)_devWant[r][c], true);
+            if (_txErr) { _ok = false; _fails++; return; }
+            _devShown[r][c] = _devWant[r][c];
             cursor = (int8_t)(c + 1);
         }
     }
