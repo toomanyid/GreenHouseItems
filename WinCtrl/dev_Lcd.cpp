@@ -51,7 +51,7 @@ bool Lcd::begin(uint8_t sda, uint8_t scl) {
     return _ok;
 }
 
-void Lcd::reinit() {
+void Lcd::reinit(bool clear) {
     if (_addr == 0 || !_ok) {
         _oled = false;
         if (probe(0x27)) _addr = 0x27;
@@ -59,7 +59,7 @@ void Lcd::reinit() {
         else if (probe(LCD2004_ADDR)) _addr = LCD2004_ADDR;   // 2004: 1602와 줄 시작 주소가 같다
         else if (probe(0x3C)) { _addr = 0x3C; _oled = true; }
         else if (probe(0x3D)) { _addr = 0x3D; _oled = true; }
-        else { _ok = false; return; }
+        else { if (_ok || _addr != 0) _fails++; _ok = false; return; }
     }
     _txErr = false;
     if (_oled) {
@@ -67,6 +67,7 @@ void Lcd::reinit() {
         for (uint8_t r = 0; r < ROWS; r++)
             for (uint8_t c = 0; c < COLS; c++) _shown[r][c] = 0;
         _ok = !_txErr;
+        if (!_ok) _fails++;
         return;
     }
     // 4비트 모드로 들어가는 순서 (HD44780 데이터시트)
@@ -79,12 +80,15 @@ void Lcd::reinit() {
     command(0x28);          // 4비트, 2줄, 5x8
     command(0x0C);          // 화면 켬, 커서 끔
     command(0x06);          // 오른쪽으로 진행
-    command(0x01);          // 지움
-    delay(2);
+    if (clear) {
+        command(0x01);      // 지움 (주기 초기화에서는 하지 않아 화면이 비지 않는다)
+        delay(2);
+    }
     for (uint8_t r = 0; r < ROWS; r++)
         for (uint8_t c = 0; c < COLS; c++) _shown[r][c] = 0;   // 전부 다시 쓰게
     _glyphDirty = 0xFF;                                        // 사용자 글자도 다시
     _ok = !_txErr;
+    if (!_ok) _fails++;
 }
 
 void Lcd::setGlyph(uint8_t slot, const uint8_t rows[8]) {
@@ -128,12 +132,12 @@ void Lcd::flush() {
     if (!_ok) return;
     _txErr = false;
     writeGlyphs();
-    if (_txErr) { _ok = false; return; }
+    if (_txErr) { _ok = false; _fails++; return; }
     if (_oled) {
         for (uint8_t r = 0; r < ROWS; r++) {
             if (memcmp(_want[r], _shown[r], COLS) == 0) continue;
             oledRow(r);
-            if (_txErr) { _ok = false; return; }
+            if (_txErr) { _ok = false; _fails++; return; }
             memcpy(_shown[r], _want[r], COLS);
         }
         return;
@@ -144,7 +148,7 @@ void Lcd::flush() {
             if (_want[r][c] == _shown[r][c]) { cursor = -1; continue; }
             if (cursor != (int8_t)c) command((uint8_t)(0x80 | (r ? 0x40 : 0x00) | c));
             send((uint8_t)_want[r][c], true);
-            if (_txErr) { _ok = false; return; }
+            if (_txErr) { _ok = false; _fails++; return; }
             _shown[r][c] = _want[r][c];
             cursor = (int8_t)(c + 1);
         }

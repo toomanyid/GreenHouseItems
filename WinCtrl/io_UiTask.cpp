@@ -240,6 +240,7 @@ private:
     uint32_t _zigLastMs = 0;
     uint32_t _pendMs = 0;
     uint32_t _lastLcdInit = 0;
+    bool     _lcdOk = true;          // 지난 주기에 화면 통신이 됐는지
 
     // 평소 화면
     Item     _item = Item::SYNC;
@@ -397,6 +398,20 @@ void Ui::pushSettings(uint8_t timesMask, uint8_t calMask) {
     if (!_settingsPending) { _pendTimes = 0; _pendCal = 0; }
 }
 
+static const char* stateName(WinState s) {
+    static const char* N[] = { "IDLE", "HOMING", "MOVING", "CLOSING", "REV_WAIT", "CAL", "LIMIT", "FAULT", "ESTOP" };
+    uint8_t i = (uint8_t)s;
+    return i < 9 ? N[i] : "?";
+}
+static void posText(char* out, const WindowStatus& w, cs_t pos, bool target = false) {
+    // 위치: 백분율(화면과 같음)과 내부 초. 목표는 지금 위치를 몰라도 값이 있으므로 그대로 보인다
+    if (!target && w.posState == PosState::UNKNOWN) { strcpy(out, "--.-"); return; }
+    if ((!target && w.posState == PosState::CLOSED) || pos <= 0) { strcpy(out, "CLOSE"); return; }
+    char b[8];
+    Fmt::pct4(b, SettingsRules::pctFromPos(pos, w.home, w.maxPos));
+    snprintf(out, 20, "%s(%ld.%02lds)", b[0] == ' ' ? b + 1 : b, (long)(pos / 100), (long)(pos % 100));
+}
+
 // 디버그 3단계: 창 상태, 측정 단계, 전류를 시리얼에 찍는다 (읽기만 하고 동작은 바꾸지 않는다).
 // 바뀔 때마다 한 줄, 움직이는 동안 0.5초마다 한 줄.
 static void detailLog(const Status& st, uint32_t now) {
@@ -416,11 +431,13 @@ static void detailLog(const Status& st, uint32_t now) {
         if (!changed && !(periodic && (w.dir != 0 || w.state == WinState::CALIBRATING))) continue;
         last[i] = cur;
         uint8_t ph = cur.phase < 8 ? cur.phase : 0;
-        Serial.printf("[win%u] %lu.%02lus %s%s dir %+d cal %s %ld.%02lds  I %ldmA max %ldmA  pos %ld  fault %s calFail %s%s\n",
+        char pt[20];
+        posText(pt, w, w.pos);                     // 모르는 위치는 --.- (안에서 쌓는 숫자는 보이지 않는다)
+        Serial.printf("[win%u] %lu.%02lus %s%s dir %+d cal %s %ld.%02lds  I %ldmA max %ldmA  pos %s  fault %s calFail %s%s\n",
                       i + 1, (unsigned long)(now / 1000), (unsigned long)(now % 1000 / 10),
                       cur.state < 9 ? STATE[cur.state] : "?", changed ? "*" : "", w.dir, PHASE[ph],
                       (long)(w.cal.elapsed / 100), (long)(w.cal.elapsed % 100),
-                      (long)w.currentMa, (long)w.moveMaxMa, (long)w.pos,
+                      (long)w.currentMa, (long)w.moveMaxMa, pt,
                       cur.fault < 11 ? CAUSE[cur.fault] : "?", cur.calCause < 11 ? CAUSE[cur.calCause] : "?",
                       w.cal.outOfRange ? " OUT_OF_RANGE" : "");
         if (changed && (w.cal.phase == CalPhase::WAIT_2 || w.cal.phase == CalPhase::DONE || w.cal.phase == CalPhase::FAILED))
@@ -431,20 +448,6 @@ static void detailLog(const Status& st, uint32_t now) {
 }
 
 // 디버그 로그 (io_Debug.h의 단계). 상태 복사본을 지난 것과 비교해 바뀐 것만 찍는다
-static const char* stateName(WinState s) {
-    static const char* N[] = { "IDLE", "HOMING", "MOVING", "CLOSING", "REV_WAIT", "CAL", "LIMIT", "FAULT", "ESTOP" };
-    uint8_t i = (uint8_t)s;
-    return i < 9 ? N[i] : "?";
-}
-static void posText(char* out, const WindowStatus& w, cs_t pos) {
-    // 위치: 백분율(화면과 같음)과 내부 초
-    if (w.posState == PosState::UNKNOWN) { strcpy(out, "--.-"); return; }
-    if (w.posState == PosState::CLOSED || pos <= 0) { strcpy(out, "CLOSE"); return; }
-    char b[8];
-    Fmt::pct4(b, SettingsRules::pctFromPos(pos, w.home, w.maxPos));
-    snprintf(out, 20, "%s(%ld.%02lds)", b[0] == ' ' ? b + 1 : b, (long)(pos / 100), (long)(pos % 100));
-}
-
 // 0.1 단위 정수를 "-0.5"처럼 (부호는 음수만), 0.01 단위를 "+0.05"처럼
 static const char* tenths(char* out, int32_t v) {
     int32_t a = v < 0 ? -v : v;
@@ -471,7 +474,7 @@ void Ui::debugLog(uint32_t now) {
                 char pos[20], tgt[20];
                 posText(pos, b, b.pos);
                 if (b.target < 0) strcpy(tgt, "CLOSE");
-                else posText(tgt, b, b.target);
+                else posText(tgt, b, b.target, true);
                 bool moving = isMovingState(b.state);
                 Serial.printf("[win%u] %s -> %s  pos %s%s%s%s\n", (unsigned)(i + 1), stateName(a.state), stateName(b.state),
                               pos, moving ? "  > " : "", moving ? tgt : "",
@@ -498,13 +501,14 @@ void Ui::debugLog(uint32_t now) {
             posText(p0, c.win[0], c.win[0].pos);
             posText(p1, c.win[1], c.win[1].pos);
             char tt[12];
-            Serial.printf("[st] %lus W1 %s %s %ldmA | W2 %s %s %ldmA | T %s%sC %ldua next %us%s | MC %s %ldmV | ES %ldmV\n",
+            Serial.printf("[st] %lus W1 %s %s %ldmA | W2 %s %s %ldmA | T %s%sC %ldua next %us%s | MC %s %ldmV | ES %ldmV | LCD %s fail %lu\n",
                           (unsigned long)(now / 1000),
                           stateName(c.win[0].state), p0, (long)c.win[0].currentMa,
                           stateName(c.win[1].state), p1, (long)c.win[1].currentMa,
                           c.temp.valid ? "" : "(no)", tenths(tt, c.temp.temp), (long)c.tempUa,
                           (unsigned)c.temp.nextS, c.temp.manual ? " MAN" : (c.temp.paused ? " PAUSE" : ""),
-                          c.relayUse ? (c.relayOn ? "ON" : "off") : "NONE", (long)c.relayMv, (long)c.estopMv);
+                          c.relayUse ? (c.relayOn ? "ON" : "off") : "NONE", (long)c.relayMv, (long)c.estopMv,
+                          _lcd.ok() ? "ok" : "FAIL", (unsigned long)_lcd.fails());
         }
         detailLog(c, now);
     }
@@ -573,10 +577,22 @@ void Ui::tick() {
     _lcd.setBacklight(_backlight);
     sendMode();
 
-    // 화면 통신: 주기적으로, 실패했으면 더 자주 다시 초기화
-    uint32_t every = _lcd.ok() ? LCD_REINIT_MS : LCD_RETRY_MS;
-    if (now - _lastLcdInit >= every) { _lastLcdInit = now; _lcd.reinit(); logLcd("reinit"); }
+    // 화면 통신: 주기적으로(지우지 않고), 실패했으면 5초마다 다시 초기화
+    bool wasOk = _lcd.ok();
+    uint32_t every = wasOk ? LCD_REINIT_MS : LCD_RETRY_MS;
+    if (now - _lastLcdInit >= every) {
+        _lastLcdInit = now;
+        _lcd.reinit(!wasOk);
+        if (!wasOk || !_lcd.ok()) logLcd("retry");                 // 실패 뒤 다시 시도: 1단계
+        else if (Dbg::on(Dbg::ACTION)) logLcd("periodic reinit");  // 늘 하는 것: 2단계
+    }
     _lcd.flush();
+    // 통신이 실패한 순간을 남긴다 (모터 기동 잡음 확인용, 2026-11-28)
+    if (_lcdOk && !_lcd.ok())
+        Serial.printf("[lcd] I2C FAILED at %lu.%02lus (fail #%lu), retry in %lus\n",
+                      (unsigned long)(now / 1000), (unsigned long)(now % 1000 / 10),
+                      (unsigned long)_lcd.fails(), (unsigned long)(LCD_RETRY_MS / 1000));
+    _lcdOk = _lcd.ok();
 
     _snd.setOptions(_s.clickSound, _s.alarmSound);
     _snd.tick(now, anyFault(), _st.estop);

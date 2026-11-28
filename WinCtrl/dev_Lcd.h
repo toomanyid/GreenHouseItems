@@ -24,7 +24,10 @@ public:
     void setGlyph(uint8_t slot, const uint8_t rows[8]);   // 사용자 글자 (5x8, 줄마다 아래 5비트). 바뀐 것만 보냄
     void flush();                                   // 바뀐 글자만 보냄
     void setBacklight(bool on);
-    void reinit();                                  // 다시 초기화하고 전부 다시 씀
+    // 다시 초기화하고 전부 다시 씀. clear가 거짓이면 화면을 지우지 않고 덮어쓴다
+    // (주기 초기화: 잡음으로 4비트 모드가 어긋났을 때를 되살리되 화면이 비지 않게, 2026-11-28)
+    void reinit(bool clear = true);
+    uint32_t fails() const { return _fails; }        // 켠 뒤 통신 실패 횟수
     bool ok() const { return _ok; }
     bool isOled() const { return _oled; }
     const char* kind() const;                       // "LCD1602", "LCD2004", "OLED"
@@ -52,4 +55,5 @@ private:
     uint8_t _glyph[GLYPHS][8] = {};
     uint8_t _glyphDirty = 0;        // 비트마다 보낼 사용자 글자
     bool    _txErr = false;
+    uint32_t _fails = 0;
 };
