@@ -75,37 +75,37 @@ static void test_format_small() {
         Fmt::basicLines(r0, r1, Fmt::BASIC_TEMP, 0, true);
         CHECK(eq(r0, "NO TEMP SENSOR  ")); CHECK(eq(r1, "MANUAL ONLY   OK"));
     }
-    Fmt::smallLine(l, w, 2, false); CHECK(eq(l, "2 49.6          "));
+    Fmt::smallLine(l, w, 2, Cause::NONE); CHECK(eq(l, "2 49.6          "));
     w = idleWin(PosState::CLOSED, 0, 18000);
-    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 CLOSE         "));
+    Fmt::smallLine(l, w, 1, Cause::NONE); CHECK(eq(l, "1 CLOSE         "));
     w = idleWin(PosState::UNKNOWN, 0, 18000);
-    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 --.-         ?"));
+    Fmt::smallLine(l, w, 1, Cause::NONE); CHECK(eq(l, "1 --.-         ?"));
 
     w = idleWin(PosState::VALID, 9000, 18300);
     w.state = WinState::MOVING; w.dir = 1; w.target = 18300;
-    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 49.6>99.9    ^"));
+    Fmt::smallLine(l, w, 1, Cause::NONE); CHECK(eq(l, "1 49.6>99.9    ^"));
     w.target = -1; w.dir = -1;
-    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 49.6>CLOSE   v"));
+    Fmt::smallLine(l, w, 1, Cause::NONE); CHECK(eq(l, "1 49.6>CLOSE   v"));
 
     w.state = WinState::REVERSE_WAIT; w.dir = 0; w.nextDir = -1;
-    Fmt::smallLine(l, w, 1, false); CHECK(l[15] == 'v');          // 전환 정지 중에는 다음 방향
+    Fmt::smallLine(l, w, 1, Cause::NONE); CHECK(l[15] == 'v');          // 전환 정지 중에는 다음 방향
 
     w = idleWin(PosState::VALID, 18300, 18300);
     w.state = WinState::LIMIT;
-    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 99.9         L"));
+    Fmt::smallLine(l, w, 1, Cause::NONE); CHECK(eq(l, "1 99.9         L"));
 
     w.state = WinState::FAULT; w.fault = Cause::OVERLOAD;
-    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 ERR OVERLOAD !"));
+    Fmt::smallLine(l, w, 1, Cause::NONE); CHECK(eq(l, "1 ERR OVERLOAD !"));
 
     w = idleWin(PosState::UNKNOWN, 0, 18300);
     w.state = WinState::HOMING; w.dir = -1; w.target = 9000;
-    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 HOME >49.6   v"));
+    Fmt::smallLine(l, w, 1, Cause::NONE); CHECK(eq(l, "1 HOME >49.6   v"));
 
     w.state = WinState::CALIBRATING; w.dir = 1; w.cal.elapsed = 6350;
-    Fmt::smallLine(l, w, 1, false); CHECK(eq(l, "1 CAL  63.5s   ^"));
+    Fmt::smallLine(l, w, 1, Cause::NONE); CHECK(eq(l, "1 CAL  63.5s   ^"));
 
     w = idleWin(PosState::VALID, 9000, 18300);
-    Fmt::smallLine(l, w, 1, true); CHECK(eq(l, "1 ERR SENSOR    "));
+    Fmt::smallLine(l, w, 1, Cause::HOME_SENSOR); CHECK(eq(l, "1 ERR SENSOR    "));
 }
 
 // 큰 글씨와 가로 두 배 숫자
@@ -412,21 +412,49 @@ static void test_dispatcher_estop_and_relay() {
     s.d.fillStatus(status);
     CHECK(status.win[1].state == WinState::IDLE);
 
-    // 릴레이 접점 붙음: 전원 켤 때 점검에서 고장, 두 창 모두 막힘, 이벤트는 한 번
+    // MC 접점 융착: 경고만 내고 두 창 모두 그대로 운전한다. 시도할 때마다 경고 (2026-11-28)
     DSim r;
     r.relayStuck = true;
     r.d.begin(Model::W300, st, 0);
     r.run(3100);
     r.d.fillStatus(status);
     CHECK(status.relayFault);
-    CHECK(status.win[0].state == WinState::FAULT && status.win[0].fault == Cause::RELAY);
-    CHECK(status.win[1].state == WinState::FAULT);
+    CHECK(status.win[0].state != WinState::FAULT && status.win[1].state != WinState::FAULT);
     CHECK(status.eventCount == 1 && status.events[0].window == 0 && status.events[0].cause == Cause::RELAY);
-    Alert clr = { AlertType::CLEAR_FAULT, 0xFF, Cause::RELAY };
-    r.d.alert(clr, r.now);
-    r.run(100);
+    Job mv = {};
+    mv.type = JobType::MOVE; mv.source = JobSource::ENCODER; mv.window = 0; mv.target = 3000;
+    CHECK(r.d.job(mv, r.now));
+    r.run(3000);
+    CHECK(r.out.dir[0] != 0);                                // 구동한다
     r.d.fillStatus(status);
-    CHECK(status.win[0].state == WinState::FAULT);           // 릴레이 고장은 남는다
+    CHECK(status.eventCount >= 2 && status.events[1].cause == Cause::RELAY);   // 이번 시도의 경고
+
+    // MC가 붙지 않음(24V가 안 감): 경고를 내고 구동은 시도한다. 전류가 없으니 무전류 경고로 끝난다
+    struct NoEngage : DSim {
+        void stepNo() {
+            ControlInputs in = {};
+            in.now = now;
+            in.relayMv = 0;
+            in.estopMv = 24000;
+            out = d.step(in);
+            now += CONTROL_PERIOD_MS;
+        }
+    } ne;
+    ne.d.begin(Model::W300, st, 0);
+    for (int i = 0; i < 310; i++) ne.stepNo();
+    Job mv2 = mv;
+    CHECK(ne.d.job(mv2, ne.now));
+    bool drove = false;
+    for (int i = 0; i < 1500; i++) { ne.stepNo(); if (ne.out.dir[0] != 0) drove = true; }
+    CHECK(drove);
+    ne.d.fillStatus(status);
+    bool relayEv = false, noCurr = false;
+    for (uint32_t k = 0; k < status.eventCount && k < EVENT_RING_SIZE; k++) {
+        if (status.events[k].cause == Cause::RELAY) relayEv = true;
+        if (status.events[k].cause == Cause::NO_CURRENT) noCurr = true;
+    }
+    CHECK(relayEv && noCurr);
+    CHECK(status.win[0].state != WinState::FAULT);
 }
 
 static void test_dispatcher_temp_lost() {

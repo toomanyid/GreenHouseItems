@@ -43,7 +43,6 @@ public:
     void restoreFault(Cause c);                // 전원 켤 때 미확인 고장으로 시작
     void recheckSensor();                      // 원점 센서 에러 확인: 센서 판단을 처음으로 돌림
     void setEstop(bool on, uint32_t now);
-    void forceFault(Cause c, uint32_t now);    // MC 고장처럼 밖에서 정한 고장
 
     WindowOutputs tick(const WindowInputs& in);
 
@@ -90,6 +89,7 @@ private:
     void onCurrentStopped(uint32_t now, SensorState sensor);
     void onNoCurrent(uint32_t now, SensorState sensor);
     void raiseFault(Cause c, uint32_t now);
+    void warnStop(Cause c, uint32_t now, bool forgetPos);   // 경고만 내고 그 구동을 끝냄
     void overload(uint32_t now);
     void sensorFailure(uint32_t now);
     void handleSensor(const WindowInputs& in);
@@ -135,6 +135,8 @@ private:
     uint16_t  _duty = 0;
     bool      _waitRelay = false;
     uint32_t  _driveStartMs = 0;
+    cs_t      _driveStartPos = 0;
+    bool      _bottomGuess = false;  // 내리려는데 처음부터 전류가 없어 하한으로 본 것 (전류가 흐르면 지움)   // 구동을 시작한 위치 (전류가 한 번도 흐르지 않으면 여기로 되돌린다)
     int64_t   _runRaw = 0;          // 이번 구동에서 쌓인 100% 출력 환산 시간 (1000 = 1cs, 환산 없음)
     int8_t    _lastCutDir = 0;
     int8_t    _atLimit = 0;             // 내장 리밋에 닿아 선 쪽 (-1 하한, +1 상한, 0 아님)

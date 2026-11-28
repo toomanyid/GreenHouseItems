@@ -50,7 +50,6 @@ void Dispatcher::alert(const Alert& a, uint32_t now) {
         _temp.resetStep();
         break;
     case AlertType::CLEAR_FAULT:
-        if (relayFault()) break;                // MC 고장은 전원을 다시 켤 때까지 남는다
         for (uint8_t i = 0; i < 2; i++) {
             if (a.window == 0xFF || a.window == i) _w[i].clearFault(now);
         }
@@ -133,12 +132,6 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
     for (uint8_t i = 0; i < 2; i++) _w[i].setEstop(pressed, now);
     if (pressed) _temp.resetStep();
 
-    // MC 고장이면 운전을 막는다
-    if (relayFault()) {
-        for (uint8_t i = 0; i < 2; i++) _w[i].forceFault(Cause::RELAY, now);
-        if (!_relayFaultLogged) { pushEvent(0, Cause::RELAY); _relayFaultLogged = true; }
-    }
-
     // 창 2개의 상태 흐름. MC가 없으면 MC를 기다리지 않고 바로 구동한다
     bool ready = !_s.relayUse || _relay.ready();
     WindowOutputs wo[2];
@@ -158,6 +151,7 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
         bool want = (wo[0].wantRelay || wo[1].wantRelay) && _relay.selfTestDone();
         bool holdOk = !pressed && _w[0].state() != WinState::FAULT && _w[1].state() != WinState::FAULT;
         _relay.tick(now, in.relayMv, want, holdOk);
+        if (_relay.takeWarning()) pushEvent(0, Cause::RELAY);   // 경고만. 시도할 때마다 기록에 넣는다
         out.fetA = _relay.fetA();
         out.fetB = _relay.fetB();
         ready = ready && _relay.ready();
@@ -228,7 +222,7 @@ void Dispatcher::fillStatus(Status& st) const {
 
 bool Dispatcher::statusLedOn(uint32_t now) const {
     if (!_bootDone) return true;
-    bool err = _unacked || _estop.value() || relayFault();
+    bool err = _unacked || _estop.value();     // MC 경고는 미확인 에러로 들어온다
     for (uint8_t i = 0; i < 2; i++) {
         WinState st = _w[i].state();
         if (st == WinState::FAULT || st == WinState::ESTOP) err = true;

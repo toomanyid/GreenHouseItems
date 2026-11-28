@@ -144,6 +144,7 @@ private:
     bool hasTemp() const { return _st.temp.found; }
     bool anyMoving() const;
     bool anyFault() const;
+    Cause warnFor(uint8_t w) const;
     bool errorScreen() const;
     bool alarmOn() const;
     void logLcd(const char* what) const;
@@ -314,7 +315,7 @@ void Ui::begin(Model model, const Settings& s, const ErrorLog& log, uint16_t boo
         if (e.window < 1 || e.window > 2) continue;
         uint8_t w = (uint8_t)(e.window - 1);
         if (e.cause == Cause::HOME_SENSOR) history[w] = true;
-        if (!e.acked && isFaultCause(e.cause) && e.cause != Cause::RELAY && !restored[w]) {
+        if (!e.acked && isStopCause(e.cause) && !restored[w]) {     // 과전류만 고장으로 시작
             Alert a = { AlertType::RESTORE_FAULT, w, e.cause };
             ControlTask::sendAlert(a);
             restored[w] = true;
@@ -340,7 +341,18 @@ bool Ui::anyMoving() const {
 }
 
 bool Ui::anyFault() const {
-    return _st.win[0].state == WinState::FAULT || _st.win[1].state == WinState::FAULT || _st.relayFault;
+    return _st.win[0].state == WinState::FAULT || _st.win[1].state == WinState::FAULT;
+}
+
+// 그 창 줄에 보일 미확인 경고. 가장 최근 것, 공통(MC)은 두 창 모두. 온도 센서 에러는 빼고 (스펙 7절)
+Cause Ui::warnFor(uint8_t w) const {
+    Cause c = Cause::NONE;
+    for (uint8_t i = 0; i < _log.count(); i++) {
+        const ErrorEntry& e = _log.at(i);
+        if (e.acked || isStopCause(e.cause) || e.cause == Cause::TEMP_LOST || e.cause == Cause::TEMP_BAD) continue;
+        if (e.window == w + 1 || e.window == 0) c = e.cause;
+    }
+    return c;
 }
 
 // 작은 글씨 화면으로 바꿀 고장이나 에러가 있는지. 온도 센서 에러는 --.-C로만 알린다 (스펙 7절)
@@ -435,10 +447,10 @@ void Ui::tick() {
 
     if (_screen == Screen::SPLASH) {
         // 자가 점검에서 문제가 나오면 기다리지 않고 넘어간다
-        if (now - _startMs >= SPLASH_MS || _st.relayFault) {
+        if (now - _startMs >= SPLASH_MS) {
             // 모터 정보가 비어 기본값으로 도는 창이 있으면 누를 때까지 경고를 둔다 (MC 고장이면 고장 화면이 먼저)
             buildNotices();
-            _screen = (_noticeN && !_st.relayFault) ? Screen::NOTICE : Screen::MAIN;
+            _screen = _noticeN ? Screen::NOTICE : Screen::MAIN;
         }
     }
     if (!_bootSoundDone && _st.bootDone) {
@@ -496,8 +508,8 @@ void Ui::consumeEvents(uint32_t now) {
     for (uint32_t k = from; k < count; k++) {
         const ErrorEvent& e = _st.events[k % EVENT_RING_SIZE];
         if (_log.add(e.window, e.cause, _boot, now / 1000)) _logDirty = true;
-        if (e.cause == Cause::HOME_SENSOR || e.cause == Cause::TEMP_LOST || e.cause == Cause::TEMP_BAD)
-            _snd.play(Snd::ALERT);
+        // 경고는 동작을 시도할 때마다 알림음을 한 번 낸다. 기록은 미확인이 이미 있으면 늘지 않는다 (2026-11-28)
+        if (e.cause != Cause::NONE && !isStopCause(e.cause)) _snd.play(Snd::ALERT);
     }
     _seenEvents = count;
 }
@@ -690,16 +702,13 @@ void Ui::ackOne() {
         _logDirty = true;
         if (e.window >= 1 && e.window <= 2) {
             uint8_t w = (uint8_t)(e.window - 1);
-            if (isFaultCause(e.cause)) {
+            if (isStopCause(e.cause)) {
                 Alert a = { AlertType::CLEAR_FAULT, w, e.cause };
                 ControlTask::sendAlert(a);
             } else if (e.cause == Cause::HOME_SENSOR) {
                 Alert a = { AlertType::RECHECK_SENSOR, w, e.cause };
                 ControlTask::sendAlert(a);
             }
-        } else if (isFaultCause(e.cause)) {
-            Alert a = { AlertType::CLEAR_FAULT, 0xFF, e.cause };
-            ControlTask::sendAlert(a);
         }
         return;
     }
@@ -933,8 +942,7 @@ void Ui::drawMain() {
 void Ui::drawSmall() {
     char line[17];
     for (uint8_t i = 0; i < 2; i++) {
-        bool sensorErr = _log.hasUnacked((uint8_t)(i + 1), Cause::HOME_SENSOR);
-        Fmt::smallLine(line, _st.win[i], (uint8_t)(i + 1), sensorErr);
+        Fmt::smallLine(line, _st.win[i], (uint8_t)(i + 1), warnFor(i));
         _lcd.setLine(i, line);
     }
 }

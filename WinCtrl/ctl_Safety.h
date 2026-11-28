@@ -51,6 +51,8 @@ private:
 // 주 차단 MC (코드의 이름은 relay): 전원 켤 때 자가 점검, 붙이고 떼는 순서, 붙음/불량 감시
 //   두 창이 모두 멈추면 RELAY_HOLD_MS 동안 더 붙여 두었다가 뗀다. holdOk가 거짓이면
 //   (비상정지, 고장) 유지 시간 없이 EN을 끈 0.1초 뒤에 바로 뗀다.
+//   이상(자가 점검 실패, 안 붙음, 융착)은 경고만 내고 운전을 막지 않는다 (스펙 6절, 2026-11-28).
+//   동작을 시도할 때마다 다시 경고를 낸다. 부르는 쪽은 takeWarning()으로 가져가 에러 기록에 넣는다.
 class RelayControl {
 public:
     void begin(uint32_t now);
@@ -61,17 +63,20 @@ public:
     bool fetB() const        { return _fetB; }
     bool ready() const       { return _ready; }        // 붙고 0.1초 지나 구동해도 됨
     bool selfTestDone() const { return _phase >= Phase::OFF; }
-    bool fault() const       { return _fault; }
+    bool warned() const      { return _warned; }       // 전원을 켠 뒤 경고가 한 번이라도 났는지
+    bool takeWarning()       { bool w = _warnPending; _warnPending = false; return w; }
 
 private:
     enum class Phase : uint8_t { BOOT_CHECK, TEST_A, GAP, TEST_B, OFF, ENGAGE_B, ENGAGE_A, ON, HOLD, RELEASE_WAIT };
-    void  setFault() { _fault = true; _fetA = _fetB = false; _ready = false; }
+    void  warn() { _warnPending = true; _warned = true; }
 
     Phase    _phase = Phase::BOOT_CHECK;
     uint32_t _phaseMs = 0;
     uint32_t _offMs = 0;          // 뗀 시각 (붙음 검사용)
     bool     _decayCheck = false;
-    bool     _fetA = false, _fetB = false, _ready = false, _fault = false;
+    bool     _fetA = false, _fetB = false, _ready = false;
+    bool     _warnPending = false, _warned = false;
+    bool     _lostWarned = false;  // 붙어 있는 동안 전압이 빠짐을 이번에 알렸는지 (붙일 때마다 처음으로)
 };
 
 // 단순한 시간 유지 필터: 같은 값이 holdMs 이어져야 바뀐다

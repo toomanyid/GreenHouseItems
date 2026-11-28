@@ -163,14 +163,14 @@ void basicLines(char* r0, char* r1, uint8_t page, uint8_t noHome, bool last) {
     else r1[15] = '>';
 }
 
-void smallLine(char* out, const WindowStatus& w, uint8_t num, bool sensorErr) {
+void smallLine(char* out, const WindowStatus& w, uint8_t num, Cause warn) {
     char b[12];
     blank(out, 16);
     out[0] = (char)('0' + num);
     out[15] = statusChar(w);
 
     if (w.state == WinState::FAULT) { put(out, 2, faultLong(w.fault)); return; }
-    if (sensorErr) { put(out, 2, "ERR SENSOR"); return; }
+    if (warn != Cause::NONE) { put(out, 2, faultLong(warn)); return; }
 
     if (w.resync) {
         // 일찍 리밋에 닿아 끝점에서 다시 맞추는 중: "1 RESYNC>45.0 v" (2026-11-26)

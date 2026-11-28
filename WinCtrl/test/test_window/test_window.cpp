@@ -96,6 +96,12 @@ struct Sim {
         }
         return false;
     }
+    // 쌓인 이벤트 중에 c가 있는지 (다 비운다)
+    bool popped(Cause c) {
+        Cause e; bool hit = false;
+        while (w.popEvent(e)) if (e == c) hit = true;
+        return hit;
+    }
     void move(cs_t target, JobSource src = JobSource::ENCODER) {
         Job j = {};
         j.type = JobType::MOVE;
@@ -389,12 +395,25 @@ static void test_no_current() {
     sim.move(8000);
     // 위치를 몰라 먼저 내리는데 전류가 없어 하한으로 본다. 그다음 올라가는 것은 리밋에서 떠나는 구동이라
     // LIMIT_RELEASE_MS 뒤에 무전류로 잡힌다 (2026-11-25)
+    // 고장으로 세우지 않고 경고만 낸다. 다음 이동도 받고, 시도할 때마다 다시 경고 (2026-11-28)
     uint32_t t0 = sim.now;
-    CHECK(sim.runUntil(WinState::FAULT, 12000));
+    bool warned = false;
+    for (uint32_t t = 0; t < 12000 && !warned; t += CONTROL_PERIOD_MS) { sim.step(); warned = sim.popped(Cause::NO_CURRENT); }
+    CHECK(warned);
     CHECK(sim.now - t0 > LIMIT_RELEASE_MS);
-    WindowStatus st;
-    sim.w.fillStatus(st);
-    CHECK(st.fault == Cause::NO_CURRENT);
+    CHECK(sim.w.state() == WinState::IDLE);
+    CHECK(sim.w.posState() == PosState::UNKNOWN);            // 하한도 전류 없이 짐작한 것이라 믿지 않는다
+    for (int k = 0; k < 2; k++) {
+        sim.move(8000);
+        sim.run(15000);
+        CHECK(sim.popped(Cause::NO_CURRENT));
+        CHECK(sim.w.state() != WinState::FAULT);
+    }
+    sim.p.connected = true;                                  // 플러그를 다시 꽂으면 그대로 간다
+    sim.move(8000);
+    CHECK(sim.runUntilIdle(200000));
+    CHECK(sim.w.pos() == 8000);
+    CHECK_NEAR(sim.p.u, 8000, 3);
 }
 
 // 올라가다 일찍 상한에 닿으면 고장이 아니라 가까운 끝점에서 다시 맞추고 목표로 (2026-11-26)
@@ -491,11 +510,18 @@ static void test_timeout() {
     s2.upTime = 90000;            // 시간 초과를 보려고 top을 크게
     sim.w.setSettings(s2);
     sim.move(80000);
-    CHECK(sim.runUntil(WinState::FAULT, 300000));
-    WindowStatus st;
-    sim.w.fillStatus(st);
-    CHECK(st.fault == Cause::TIMEOUT);
+    // 시간 초과: 경고만 내고 그 구동을 끝낸다. 위치는 모름, 다음 이동 때 원점부터 (2026-11-28)
+    bool warned = false;
+    for (uint32_t t = 0; t < 300000 && !warned; t += CONTROL_PERIOD_MS) { sim.step(); warned = sim.popped(Cause::TIMEOUT); }
+    CHECK(warned);
     CHECK_NEAR(sim.now, 210000 + 30000, 40000);
+    CHECK(sim.w.state() == WinState::IDLE);
+    CHECK(sim.w.posState() == PosState::UNKNOWN);
+    { WindowStatus st; sim.w.fillStatus(st); CHECK(st.dir == 0); }
+    sim.move(5000);                                          // 받는다: 원점부터 다시
+    sim.run(2000);
+    CHECK(sim.w.state() == WinState::HOMING || sim.w.state() == WinState::CLOSING
+          || sim.w.state() == WinState::REVERSE_WAIT);
 }
 
 static void test_estop() {
@@ -803,7 +829,7 @@ static void test_relay_selftest_and_engage() {
     uint32_t t = 0;
     for (; t < 2000 && !r.selfTestDone(); t += 10) r.tick(t, 0, false);
     CHECK(r.selfTestDone());
-    CHECK(!r.fault());
+    CHECK(!r.warned() && !r.takeWarning());
     // 붙일 때 B 먼저
     r.tick(t, 0, true); t += 10;
     CHECK(r.fetB() && !r.fetA());
@@ -824,9 +850,10 @@ static void test_relay_selftest_and_engage() {
     CHECK(r.fetA() && r.fetB());
     for (int i = 0; i < 11; i++) { r.tick(t, 20000, false); t += 10; }
     CHECK(!r.fetA() && !r.fetB());
-    // 뗀 뒤 전압이 남으면 접점 붙음
+    // 뗀 뒤 전압이 남으면 접점 붙음: 경고만
     for (int i = 0; i < 400; i++) { r.tick(t, 20000, false); t += 10; }
-    CHECK(r.fault());
+    CHECK(r.warned() && r.takeWarning());
+    CHECK(!r.takeWarning());
 }
 
 static void test_relay_selftest_detects_shorted_fet() {
@@ -834,7 +861,46 @@ static void test_relay_selftest_detects_shorted_fet() {
     r.begin(0);
     uint32_t t = 0;
     for (; t < 2000; t += 10) r.tick(t, r.fetA() ? 24000 : 0, false);   // A만 켰는데 전압: B 붙음
-    CHECK(r.fault());
+    CHECK(r.warned() && r.takeWarning());
+    CHECK(r.selfTestDone());                                             // 경고만 내고 점검은 끝낸다
+    // 그래도 붙이고 구동한다 (2026-11-28)
+    for (int i = 0; i < 15; i++) { r.tick(t, (r.fetA() && r.fetB()) ? 24000 : 0, true); t += 10; }
+    CHECK(r.ready() && r.fetA() && r.fetB());
+}
+
+// MC가 붙지 않음(전압이 안 생김): 시도할 때마다 경고, 구동은 그대로 시도 (2026-11-28)
+static void test_relay_no_engage_keeps_trying() {
+    RelayControl r;
+    r.begin(0);
+    uint32_t t = 0;
+    for (; t < 2000 && !r.selfTestDone(); t += 10) r.tick(t, 0, false);
+    for (int attempt = 0; attempt < 3; attempt++) {
+        for (int i = 0; i < 15; i++) { r.tick(t, 0, true); t += 10; }
+        CHECK(r.ready());                          // 전압이 없어도 구동하게 둔다
+        CHECK(r.takeWarning());                    // 이번 시도의 경고
+        for (int i = 0; i < 100; i++) { r.tick(t, 0, true); t += 10; }
+        CHECK(!r.takeWarning());                   // 한 시도에 한 번
+        // 멈추고 완전히 뗀 뒤 다음 시도
+        for (uint32_t s = t; t - s < RELAY_HOLD_MS + 500; t += 10) r.tick(t, 0, false);
+        CHECK(!r.fetA() && !r.fetB());
+    }
+}
+
+// MC 융착(떼어도 전압이 남음): 운전은 계속하고, 시도할 때마다 경고 (2026-11-28)
+static void test_relay_welded_keeps_running() {
+    RelayControl r;
+    r.begin(0);
+    uint32_t t = 0;
+    for (; t < 2000 && !r.selfTestDone(); t += 10) r.tick(t, 24000, false);   // 켤 때부터 전압
+    CHECK(r.selfTestDone() && r.takeWarning());
+    for (int attempt = 0; attempt < 3; attempt++) {
+        for (int i = 0; i < 15; i++) { r.tick(t, 24000, true); t += 10; }
+        CHECK(r.ready());
+        if (attempt > 0) CHECK(r.takeWarning());   // 붙이기 전부터 전압: 융착
+        for (uint32_t s = t; t - s < RELAY_HOLD_MS + 500; t += 10) r.tick(t, 24000, false);
+        for (int i = 0; i < 400; i++) { r.tick(t, 24000, false); t += 10; }
+        CHECK(r.takeWarning());                    // 뗀 뒤 3초에도 전압
+    }
 }
 
 static void test_relay_release_without_hold() {
@@ -932,10 +998,24 @@ static void test_no_release_from_middle() {
     CHECK(sim.w.posState() == PosState::VALID);
     sim.p.connected = false;
     sim.move(8000);
-    CHECK(sim.runUntil(WinState::FAULT, 2500));
-    WindowStatus st;
-    sim.w.fillStatus(st);
-    CHECK(st.fault == Cause::NO_CURRENT);
+    bool warned = false;
+    for (uint32_t t = 0; t < 2500 && !warned; t += CONTROL_PERIOD_MS) { sim.step(); warned = sim.popped(Cause::NO_CURRENT); }
+    CHECK(warned);
+    CHECK(sim.w.state() == WinState::IDLE);
+    CHECK(sim.w.posState() == PosState::VALID && sim.w.pos() == 6000);
+}
+
+// 원점 센서가 붙어 늘 ON: 원점 잡기에서 센서를 못 찾아도 서지 않고 센서 없이 이어간다 (2026-11-28)
+static void test_sensor_stuck_on_homing_continues() {
+    Sim sim;
+    sim.p.u = 5000;
+    sim.p.stuck = 2;
+    sim.begin(baseSettings());
+    sim.move(8000);
+    CHECK(sim.runUntilIdle(400000));
+    CHECK(sim.w.state() != WinState::FAULT);
+    CHECK(sim.popped(Cause::HOME_SENSOR));
+    CHECK_NEAR(sim.w.pos(), 8000, 3);
 }
 
 int main() {
@@ -954,6 +1034,7 @@ int main() {
     RUN(test_open_from_bottom_limit_release);
     RUN(test_overload_during_limit_release);
     RUN(test_no_release_from_middle);
+    RUN(test_sensor_stuck_on_homing_continues);
     RUN(test_close_when_unknown_and_already_closed);
     RUN(test_upper_limit);
     RUN(test_overload_backoff);
@@ -978,6 +1059,8 @@ int main() {
     RUN(test_close_on_unknown_then_target);
     RUN(test_relay_selftest_and_engage);
     RUN(test_relay_selftest_detects_shorted_fet);
+    RUN(test_relay_no_engage_keeps_trying);
+    RUN(test_relay_welded_keeps_running);
     RUN(test_relay_release_without_hold);
     RUN(test_current_monitor);
     return finish();

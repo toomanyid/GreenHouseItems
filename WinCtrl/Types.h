@@ -20,12 +20,14 @@ enum class PosState : uint8_t { UNKNOWN, CLOSED, VALID };
 // 고장과 에러 원인. 에러 저장(11절)의 원인 값으로도 쓴다.
 enum class Cause : uint8_t {
     NONE = 0,
-    OVERLOAD, NO_CURRENT, LIMIT_HIT, DRIVER, TIMEOUT, SENSOR, RELAY,  // 고장 (창이 멈춤)
+    OVERLOAD, NO_CURRENT, LIMIT_HIT, DRIVER, TIMEOUT, SENSOR, RELAY,  // 하드웨어 이상 (멈추는 것은 isStopCause만)
     HOME_SENSOR,                                                     // 원점 센서 에러 (센서 없이 계속)
     TEMP_LOST, TEMP_BAD                                              // 온도 센서 끊김, 이상
 };
 
 inline bool isFaultCause(Cause c) { return c >= Cause::OVERLOAD && c <= Cause::RELAY; }
+// 동작을 멈추는 고장은 과전류뿐이다: 과부하, 드라이버 고장 신호. 나머지는 경고만 (스펙 6절, 2026-11-28)
+inline bool isStopCause(Cause c) { return c == Cause::OVERLOAD || c == Cause::DRIVER; }
 
 // ============================================================
 //  잡 (화면/온도제어 → 제어)
@@ -182,7 +184,7 @@ struct Status {
     bool         bootDone;     // 자가 점검과 센서 판단이 끝났는지
     bool         estop;
     bool         relayUse;     // MC 있음 설정
-    bool         relayFault;
+    bool         relayFault;   // MC 경고가 한 번이라도 남 (운전은 막지 않음)
     uint32_t     eventCount;   // 지금까지 넣은 이벤트 수
     ErrorEvent   events[EVENT_RING_SIZE];
 };

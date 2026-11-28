@@ -128,6 +128,7 @@ void Window::clearFault(uint32_t now) {
 }
 
 void Window::restoreFault(Cause c) {
+    if (!isStopCause(c)) return;          // 경고는 다시 켤 때 표시만 한다 (스펙 11절, 2026-11-28)
     _state = WinState::FAULT;
     _fault = c;
     _fPhase = FaultPhase::HOLD;
@@ -164,21 +165,6 @@ void Window::setEstop(bool on, uint32_t now) {
     }
 }
 
-void Window::forceFault(Cause c, uint32_t now) {
-    if (_state == WinState::FAULT && _fault == c) return;
-    if (_state == WinState::CALIBRATING) {
-        _cal.phase = CalPhase::FAILED;
-        _cal.failCause = c;
-        _posState = PosState::UNKNOWN;
-    }
-    cut(now);
-    _state = WinState::FAULT;
-    _fault = c;
-    _fPhase = FaultPhase::HOLD;
-    _goal = Goal::NONE;
-    _pendingValid = false;
-}
-
 // ============================================================
 //  한 주기
 // ============================================================
@@ -197,6 +183,7 @@ WindowOutputs Window::tick(const WindowInputs& in) {
     if (_dir != 0 && _waitRelay && in.relayReady) {
         _waitRelay = false;
         _driveStartMs = now;
+        _driveStartPos = _pos;
         _mon.start();
     }
 
@@ -504,6 +491,7 @@ void Window::checkRunning(const WindowInputs& in) {
 
     bool cal = _state == WinState::CALIBRATING;
     bool backoff = _state == WinState::FAULT;
+    if (_mon.everFlowed()) _bottomGuess = false;      // 전류가 흘렀으니 모터와 24V는 살아 있다
 
     if (in.driverFault) {
         if (backoff) { cut(now); _fPhase = FaultPhase::HOLD; }
@@ -532,7 +520,7 @@ void Window::checkRunning(const WindowInputs& in) {
     if (limit == 0) limit = MAX_RUN_FALLBACK_MS;
     if (!backoff && now - _driveStartMs > limit) {
         if (cal) calFail(Cause::TIMEOUT, now);
-        else raiseFault(Cause::TIMEOUT, now);
+        else warnStop(Cause::TIMEOUT, now, true);     // 경고만. 위치를 모름으로 돌려 다음 이동 때 원점부터
     }
 }
 
@@ -550,12 +538,17 @@ void Window::onNoCurrent(uint32_t now, SensorState sensor) {
         // 닫기나 원점 잡기에서 내려가려는데 처음부터 전류가 없음: 이미 하한으로 본다
         bool downward = _state == WinState::CLOSING || _state == WinState::HOMING;
         if (downward && (!sensorActive() || _known == Known::UNDECIDED || sensor == SensorState::PRESENT)) {
+            _bottomGuess = true;
             onCurrentStopped(now, sensor);
             return;
         }
     }
     if (_state == WinState::CALIBRATING) { calFail(Cause::NO_CURRENT, now); return; }
-    raiseFault(Cause::NO_CURRENT, now);
+    // 전류가 한 번도 흐르지 않았으면 모터가 돌지 않은 것: 쌓인 위치를 시작 자리로 되돌린다
+    // 하한도 전류 없이 짐작한 것이면(모터 플러그 빠짐, 24V 없음) 위치를 믿을 수 없다: 모름으로
+    if (_posState == PosState::VALID) _pos = _driveStartPos;
+    warnStop(Cause::NO_CURRENT, now, _bottomGuess);
+    _bottomGuess = false;          // 경고만. 위치는 그대로, 다음 이동을 받는다
 }
 
 void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
@@ -608,7 +601,6 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
                 decideAbsentAtBottom(now);     // OFF인 채로 처음 하한: 센서 없음으로 이어간다
             } else {
                 sensorFailure(now);            // 센서가 있는 창이 닫혔는데 OFF
-                if (_state == WinState::FAULT) return;
             }
         }
         if (_state == WinState::CLOSING) {
@@ -627,7 +619,10 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
             }
             return;
         }
-        raiseFault(Cause::LIMIT_HIT, now);
+        // 그 밖의 하강 중 하한: 경고만 내고 닫힘에서 하던 목표로 간다 (2026-11-28)
+        pushEvent(Cause::LIMIT_HIT);
+        if (_goal == Goal::TARGET) beginGoal(now);
+        else { _goal = Goal::NONE; settleIdle(); }
     } else {
         // 상한에서 전류가 끊김: top으로 고쳐 쓴다.
         // top 근처(LIMIT_NEAR_TOP_PCT 안)면 정상 도착, 그보다 아래면 위치가 어긋난 것이라 고장
@@ -652,8 +647,24 @@ void Window::onCurrentStopped(uint32_t now, SensorState sensor) {
             }
             return;
         }
-        raiseFault(Cause::LIMIT_HIT, now);
+        // 위치를 모르는 채 올라가다 닿음(센서로 원점 잡기 중 등): 경고만 내고 top으로 잡은 뒤 목표로 (2026-11-28)
+        _pos = maxPos();
+        _acc = 0;
+        _posState = PosState::VALID;
+        pushEvent(Cause::LIMIT_HIT);
+        if (_goal == Goal::TARGET) beginGoal(now);
+        else { _goal = Goal::NONE; settleIdle(); }
     }
+}
+
+// 과전류가 아닌 이상: 그 한 번의 구동만 끝내고 경고를 낸다. 창은 다음 이동을 받는다 (스펙 6절, 2026-11-28)
+void Window::warnStop(Cause c, uint32_t now, bool forgetPos) {
+    cut(now);
+    if (forgetPos) _posState = PosState::UNKNOWN;
+    _goal = Goal::NONE;
+    _pendingValid = false;
+    settleIdle();
+    pushEvent(c);
 }
 
 // 측정의 첫 하강에서 하한에 닿음: 센서 판단 뒤 1초 정지
@@ -734,7 +745,11 @@ void Window::tickHoming(const WindowInputs& in) {
         if (_waitRelay || _dir == 0) break;
         // bottom에서 센서 지점까지 + 여유 안에 전환이 없으면 센서 이상
         uint32_t limitMs = (uint32_t)sensorPoint() * 10 * 2 + 2 * HOME_EXTRA_DOWN_MS + 5000;
-        if (now - _driveStartMs > limitMs) raiseFault(Cause::SENSOR, now);
+        if (now - _driveStartMs > limitMs) {
+            // 센서를 못 찾음: 경고를 내고 센서 없는 방식으로 bottom에서 원점을 잡아 이어간다 (2026-11-28)
+            if (sensorActive()) sensorFailure(now);
+            else { _hPhase = HomePhase::NOSENSOR_DOWN; goReverseWait(WinState::HOMING, -1, now); }
+        }
         break;
     }
     case HomePhase::NOSENSOR_DOWN:

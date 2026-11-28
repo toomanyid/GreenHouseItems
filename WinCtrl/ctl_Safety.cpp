@@ -63,26 +63,31 @@ int32_t CurrentMonitor::average() const {
 void RelayControl::begin(uint32_t now) {
     _phase = Phase::BOOT_CHECK;
     _phaseMs = now;
-    _fetA = _fetB = _ready = _fault = false;
+    _fetA = _fetB = _ready = false;
+    _warnPending = _warned = _lostWarned = false;
     _decayCheck = false;
 }
 
 void RelayControl::tick(uint32_t now, int32_t relayMv, bool wantOn, bool holdOk) {
-    if (_fault) return;
     uint32_t inPhase = now - _phaseMs;
 
     switch (_phase) {
-    // 전원 켤 때: MC가 떨어진 채 전압이 없어야 하고, A만 켜거나 B만 켜도 전압이 없어야 한다
+    // 전원 켤 때: MC가 떨어진 채 전압이 없어야 하고, A만 켜거나 B만 켜도 전압이 없어야 한다.
+    // 어긋나면 경고만 내고 운전은 받는다 (2026-11-28)
     case Phase::BOOT_CHECK:
         if (inPhase >= RELAY_SELFTEST_STEP_MS) {
-            if (relayMv >= RELAY_OFF_MV) { setFault(); return; }
+            if (relayMv >= RELAY_OFF_MV) {             // 이미 전압이 있음: 접점 융착 (A, B 시험은 뜻이 없다)
+                warn();
+                _phase = Phase::OFF; _phaseMs = now;
+                break;
+            }
             _fetA = true; _fetB = false;
             _phase = Phase::TEST_A; _phaseMs = now;
         }
         break;
     case Phase::TEST_A:
         if (inPhase >= RELAY_SELFTEST_STEP_MS) {
-            if (relayMv >= RELAY_OFF_MV) { setFault(); return; }   // B가 붙어 있음
+            if (relayMv >= RELAY_OFF_MV) warn();       // B가 붙어 있음
             _fetA = false;
             _phase = Phase::GAP; _phaseMs = now;
         }
@@ -95,7 +100,7 @@ void RelayControl::tick(uint32_t now, int32_t relayMv, bool wantOn, bool holdOk)
         break;
     case Phase::TEST_B:
         if (inPhase >= RELAY_SELFTEST_STEP_MS) {
-            if (relayMv >= RELAY_OFF_MV) { setFault(); return; }   // A가 붙어 있음
+            if (relayMv >= RELAY_OFF_MV) warn();       // A가 붙어 있음
             _fetB = false;
             _phase = Phase::OFF; _phaseMs = now;
         }
@@ -105,10 +110,13 @@ void RelayControl::tick(uint32_t now, int32_t relayMv, bool wantOn, bool holdOk)
         // 뗀 뒤 일정 시간이 지나도 전압이 남으면 접점이 붙은 것
         if (_decayCheck && now - _offMs >= RELAY_DECAY_MS) {
             _decayCheck = false;
-            if (relayMv >= RELAY_OFF_MV) { setFault(); return; }
+            if (relayMv >= RELAY_OFF_MV) warn();
         }
         if (wantOn) {
+            // 붙이기 전부터 전압이 있으면 융착. 동작을 시도할 때마다 알린다 (뗀 직후 전압이 빠지는 중은 빼고)
+            if (!_decayCheck && relayMv >= RELAY_OFF_MV) warn();
             _decayCheck = false;
+            _lostWarned = false;
             _fetB = true;                         // 붙일 때는 B, A 순서
             _phase = Phase::ENGAGE_B; _phaseMs = now;
         }
@@ -119,24 +127,28 @@ void RelayControl::tick(uint32_t now, int32_t relayMv, bool wantOn, bool holdOk)
         break;
     case Phase::ENGAGE_A:
         if (inPhase >= RELAY_SETTLE_MS) {
-            if (relayMv < RELAY_ON_MV) { setFault(); return; }      // 퓨즈나 접점 불량
+            // 붙였는데 전압이 없음(퓨즈, 코일, 접점 불량): 경고만 내고 구동은 그대로 시도한다.
+            // 24V가 가지 않으면 창 쪽에서 무전류 경고로 그 구동이 끝난다
+            if (relayMv < RELAY_ON_MV) { warn(); _lostWarned = true; }
             _ready = true;
             _phase = Phase::ON; _phaseMs = now;
         }
         break;
     case Phase::ON:
-        if (relayMv < RELAY_OFF_MV) { setFault(); return; }
+        if (relayMv < RELAY_OFF_MV && !_lostWarned) { warn(); _lostWarned = true; }
         if (!wantOn) { _phase = holdOk ? Phase::HOLD : Phase::RELEASE_WAIT; _phaseMs = now; _ready = false; }
         break;
     case Phase::HOLD:
         // 멈춘 뒤에도 잠시 붙여 둔다. 그 안에 다음 이동이 오면 다시 붙이지 않고 바로 구동한다
-        if (relayMv < RELAY_OFF_MV) { setFault(); return; }
-        if (wantOn) { _ready = true; _phase = Phase::ON; _phaseMs = now; break; }
+        if (wantOn) {
+            _lostWarned = false;                  // 새 동작 시도
+            _ready = true; _phase = Phase::ON; _phaseMs = now; break;
+        }
         if (!holdOk || inPhase >= RELAY_HOLD_MS) { _phase = Phase::RELEASE_WAIT; _phaseMs = now; }
         break;
     case Phase::RELEASE_WAIT:
         // 끊은 뒤 잠깐 기다려 전류가 없을 때 뗀다
-        if (wantOn) { _ready = true; _phase = Phase::ON; _phaseMs = now; break; }
+        if (wantOn) { _lostWarned = false; _ready = true; _phase = Phase::ON; _phaseMs = now; break; }
         if (inPhase >= RELAY_RELEASE_DELAY_MS) {
             _fetA = _fetB = false;
             _offMs = now;

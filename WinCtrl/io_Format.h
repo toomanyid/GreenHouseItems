@@ -46,7 +46,8 @@ void notSetLines(char* r0, char* r1, uint8_t mask);
     void basicLines(char* r0, char* r1, uint8_t page, uint8_t noHome, bool last);
 
 // 작은 글씨 화면의 창 한 줄 (스펙 7절). "1 45.0>99.9    ^", "1 ERR OVERLOAD !"
-void smallLine(char* out, const WindowStatus& w, uint8_t num, bool sensorErr);
+// warn: 그 창의 미확인 경고(없으면 NONE). 고장이 아니므로 창이 움직여도 문구를 남기고 줄 끝 글자는 그대로
+void smallLine(char* out, const WindowStatus& w, uint8_t num, Cause warn);
 
 // ------------------------------------------------------------
 //  큰 글씨 (온도, 위치 동기). 정수 두 자리는 가로 3칸 세로 2줄인 7획 글씨다.

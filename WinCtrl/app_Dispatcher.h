@@ -45,8 +45,9 @@ public:
     bool statusLedOn(uint32_t now) const;
     // 미확인 에러 여부는 에러 기록을 가진 화면 태스크가 알려 준다
     void setUnackedError(bool on) { _unacked = on; }
-    // MC 고장. MC 없음 설정이면 늘 거짓 (스펙 6절, 2026-11-28)
-    bool relayFault() const { return _s.relayUse && _relay.fault(); }
+    // MC 경고가 전원을 켠 뒤 한 번이라도 났는지. MC 없음 설정이면 늘 거짓.
+    // 경고일 뿐 운전은 막지 않는다 (스펙 6절, 2026-11-28)
+    bool relayFault() const { return _s.relayUse && _relay.warned(); }
     const Window& window(uint8_t i) const { return _w[i]; }
 
 private:
@@ -72,7 +73,6 @@ private:
     bool        _tempBadPending = false;
     bool        _menu = false;
     bool        _manual = false;     // 위치 항목을 고름 (온도제어 멈춤)
-    bool        _relayFaultLogged = false;
     bool        _relayRestart = false;   // MC 없음 → 있음으로 바뀜: 다음 주기에 자가 점검부터
     int32_t     _lastTempUa = 0;         // 마지막으로 읽은 온도 센서 전류 (설정에서 켤 때 판단)
     bool        _unacked = false;
