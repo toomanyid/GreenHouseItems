@@ -489,6 +489,13 @@ void Ui::debugLog(uint32_t now) {
                               tenths(t0, c.temp.temp), tenths(t1, c.temp.predicted),
                               tenths(t2, _s.temp.setT), hundredths(t3, c.temp.slope));
             }
+            // 개발용: 흐름 역전과 반응 시간 (동작은 로그와 상관없이 늘 스스로 한다)
+            if (c.temp.revCount != p.temp.revCount)
+                Serial.printf("[temp] trend reversed to %s: %s\n", c.temp.trend > 0 ? "RISING" : "FALLING",
+                              c.temp.revHeld ? "effect of our move, hold and restart period" : "outside change (sun/cloud), no action yet");
+            if (c.temp.respCount != p.temp.respCount)
+                Serial.printf("[temp] response %us (estimate %us, period %us)\n", (unsigned)c.temp.respLastS,
+                              (unsigned)c.temp.respS, (unsigned)c.temp.periodS);
             if (c.temp.found && c.temp.valid != p.temp.valid)
                 Serial.printf("[temp] sensor %s\n", c.temp.valid ? "OK" : "LOST");
         }
@@ -1607,7 +1614,7 @@ void Ui::menuSteps(const int8_t* dirs, const uint32_t* gaps, uint8_t n, uint32_t
         case Level::CAL_SAVE:
             _calYes = !_calYes; changed = true; break;
         case Level::DIAG: {
-            uint8_t pages = _st.temp.found ? 4 : 3;
+            uint8_t pages = _st.temp.found ? 5 : 3;
             int t = _page + d;
             if (t < 0 || t >= pages) { bumped = true; break; }
             _page = (uint8_t)t; changed = true; break;
@@ -1751,7 +1758,7 @@ void Ui::drawMenu() {
         strcpy(l1, _calYes ? "[YES]  NO" : " YES  [NO]");
         break;
     case Level::DIAG: {
-        uint8_t pages = _st.temp.found ? 4 : 3;
+        uint8_t pages = _st.temp.found ? 5 : 3;
         if (_page == 0) {
             header(l0, "DIAG SENSOR", 1, pages);
             const char* s[2];
@@ -1775,6 +1782,11 @@ void Ui::drawMenu() {
             Fmt::amps(u, w.overloadUpMa);
             Fmt::amps(d, w.overloadDnMa);
             snprintf(l1, sizeof(l1), "%s ^%s v%s", m, u, d);
+        } else if (_page == 4) {
+            // 반응 시간과 지금 쓰는 판단 주기 (2026-11-28): "R 250s T 300s", 모르면 "R ---"
+            header(l0, "DIAG RESP", 5, pages);
+            if (_st.temp.respS) snprintf(l1, sizeof(l1), "R %us T %us", (unsigned)_st.temp.respS, (unsigned)_st.temp.periodS);
+            else snprintf(l1, sizeof(l1), "R ---  T %us", (unsigned)_st.temp.periodS);
         } else {
             header(l0, "DIAG TEMP", 4, pages);
             char t[8];

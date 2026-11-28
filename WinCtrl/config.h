@@ -143,6 +143,14 @@ const int32_t  TEMP_OVER_UA          = 21000; // 21mA를 넘으면 이상 (임�
 const uint32_t TEMP_LOSS_MS          = 1000;  // 끊김이 이 시간 이어지면 끊김으로 봄
 const uint32_t TEMP_LOG_MS           = 10000; // 온도 기록 간격
 const uint16_t TEMP_LOG_SIZE         = 180;   // 기울기 구간 최대 30분 / 10초
+// 온도 흐름과 반응 시간 (스펙 9절, 2026-11-28, 모두 임시)
+const int16_t  TEMP_TREND_SLOPE      = 5;     // 기울기가 분당 0.05도 이상이면 오름/내림으로 본다
+const uint32_t TEMP_TREND_HOLD_MS    = 60000; // 그 방향이 1분 이어져야 흐름이 바뀐 것으로 본다
+const uint32_t TEMP_RESP_MAX_MS      = 900000;   // 창을 움직이고 15분 안에 반응이 없으면 그 측정은 버림
+const uint8_t  TEMP_RESP_KEEP        = 3;        // 최근 측정 몇 개로 반응 시간을 정하나
+const uint32_t TEMP_RESP_EXPIRE_MS   = 7200000;  // 2시간 지난 측정은 버림 (그날 그때의 바람을 따라가게)
+const uint8_t  TEMP_PERIOD_RATE_X10  = 12;       // 판단 주기 = 반응 시간 × 1.2
+const uint16_t TEMP_PERIOD_MIN_S     = 30;       // 판단 주기를 이보다 짧게 줄이지 않음
 
 // ============================================================
 //  워치독, 에러 저장
