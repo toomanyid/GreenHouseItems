@@ -5,7 +5,7 @@
 //  버전과 제품명
 // ============================================================
 const uint8_t  FW_VERSION_MAJOR = 0;
-const uint8_t  FW_VERSION_MINOR = 9;
+const uint8_t  FW_VERSION_MINOR = 90;     // 00.90으로 표시 (2026-11-28, 전에는 00.09)
 #define PRODUCT_NAME "WIN CTRL"            // 10글자까지 (임시)
 
 // ============================================================

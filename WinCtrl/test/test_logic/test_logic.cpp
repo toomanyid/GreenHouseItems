@@ -46,6 +46,7 @@ static void test_format_values() {
     Fmt::temp4(b, 1234); CHECK(eq(b, "99.9"));
     Fmt::buildDate(b, "Oct  9 2026", "19:47:12"); CHECK(eq(b, "2026-10-09 19:47"));
     Fmt::splashTop(b, "WIN CTRL", 0, 9); CHECK(eq(b, "WIN CTRL   00.09"));
+    Fmt::splashTop(b, "WIN CTRL", 0, 90); CHECK(eq(b, "WIN CTRL   00.90"));
 
     // 위치는 백분율로만 (스펙 3절): 0.0 CLOSE(bottom), 1.0 = home, 99.9 = top
     CHECK(Fmt::winPct(idleWin(PosState::VALID, 2000, 15000, 2000)) == 10);

@@ -26,7 +26,7 @@ const char* causeLog(Cause c);      // 에러 기록 화면 문구
 
 // __DATE__ "Oct  9 2026", __TIME__ "19:47:12" → "2026-10-09 19:47"
 void buildDate(char* out, const char* date, const char* time);
-// "WIN CTRL   00.09"
+// "WIN CTRL   00.90"
 void splashTop(char* out, const char* name, uint8_t major, uint8_t minor);
 
 // 창의 위치를 백분율로: CLOSE 0.0, 모름 PCT_UNKNOWN
