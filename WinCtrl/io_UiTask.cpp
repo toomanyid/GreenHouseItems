@@ -349,8 +349,9 @@ void Ui::begin(Model model, const Settings& s, const ErrorLog& log, uint16_t boo
         const uint32_t cap = 60UL * 2880;
         StatRaw* buf = (StatRaw*)ps_malloc(cap * sizeof(StatRaw));
         _raw.begin(buf, cap);
-        Serial.printf("[stat] raw 30s log in PSRAM: %s (%lu records = %lu days)\n", buf ? "OK" : "FAILED",
-                      (unsigned long)(buf ? cap : 0), (unsigned long)(buf ? cap / 2880 : 0));
+        Serial.printf("[stat] raw 30s log in PSRAM: %s (%lu records = %lu days), PSRAM %lu bytes free\n",
+                      buf ? "OK" : "FAILED", (unsigned long)(buf ? cap : 0), (unsigned long)(buf ? cap / 2880 : 0),
+                      (unsigned long)ESP.getFreePsram());
     }
     _startMs = millis();
     _lastInputMs = _startMs;

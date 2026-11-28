@@ -29,6 +29,8 @@ struct HardwareSerial {
 };
 static HardwareSerial Serial;
 inline void* ps_malloc(size_t n) { return malloc(n); }
+struct EspClass { uint32_t getFreePsram() { return 0; } uint32_t getPsramSize() { return 0; } };
+static EspClass ESP;
 inline void pinMode(uint8_t, uint8_t) {}
 inline void digitalWrite(uint8_t, uint8_t) {}
 inline int digitalRead(uint8_t) { return 0; }
