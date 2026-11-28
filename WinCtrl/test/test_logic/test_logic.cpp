@@ -231,9 +231,13 @@ static void test_temp_control() {
     n = tc.tick(t, true, 300, false, v, jobs);
     CHECK(n == 2);
     CHECK(jobs[0].type == JobType::MOVE && jobs[0].target == 1500 && jobs[0].source == JobSource::TEMP_CONTROL);
-    // 같은 방향으로 이어지면 커진다: 5.0 → 7.5
+    // 효과를 기다리는 동안(온도가 그대로) 같은 쪽으로 더 움직이지 않는다 (2026-11-28)
     v[0].pos = v[1].pos = 1500;
     t += 60000;
+    CHECK(tc.tick(t, true, 300, false, v, jobs) == 0);
+    CHECK(tc.settling());
+    // 10분이 지나도 효과가 없으면 다시 움직이고, 같은 방향이 이어지면 커진다: 5.0 → 7.5
+    t += TEMP_EFFECT_WAIT_MS;
     n = tc.tick(t, true, 300, false, v, jobs);
     CHECK(n == 2 && jobs[0].target == 2250);
     // 메뉴 중에는 멈춤, 나오면 처음 크기
@@ -251,9 +255,9 @@ static void test_temp_control() {
     t += 60000;
     n = tc.tick(t, true, 260, false, v, jobs);
     CHECK(n == 2 && jobs[0].type == JobType::MOVE && jobs[0].target == 2000);
-    // home에서 한 번 더 낮으면 CLOSE
+    // home에서 한 번 더 낮으면 CLOSE (닫은 효과를 기다린 뒤)
     v[0].pos = v[1].pos = 2000;
-    t += 60000;
+    t += TEMP_EFFECT_WAIT_MS;
     n = tc.tick(t, true, 260, false, v, jobs);
     CHECK(n == 2 && jobs[0].type == JobType::CLOSE);
     v[0].home = v[1].home = 0;
@@ -294,6 +298,106 @@ static void test_temp_control() {
     CHECK(tc.tick(t, true, 276, true, v, jobs) == 0);
     t += 1000;
     CHECK(tc.tick(t, true, 276, false, v, jobs) == 2);
+}
+
+// ------------------------------------------------------------
+//  온도 흐름 역전과 반응 시간으로 판단 주기 줄이기 (2026-11-28)
+// ------------------------------------------------------------
+// 하우스 모형: 해가 데우고(분당 heat), 창을 연 만큼 delay 뒤부터 식는다. 창은 잡을 받으면 바로 그 자리로
+struct House {
+    TempControl tc;
+    TempSettings t;
+    TempControl::WinView v[2];
+    double temp = 280;            // 0.1도
+    double heat = 6;              // 분당 0.1도 단위
+    double cool = 0.002;          // 1cs 열림당 분당 식는 양 (5초 열면 분당 1.0도)
+    uint32_t delayMs = 90000;
+    uint32_t now = 0;
+    cs_t hist[4000] = {};         // 10ms마다가 아니라 1초마다 위치 기록
+    uint32_t jobs = 0, lastJobMs = 0;
+    House() {
+        SettingsRules::defaultsTemp(t);
+        t.sensorAuto = true; t.setT = 280; t.deadband = 5; t.periodS = 300; t.aheadMin = 0; t.slopeMin = 2;
+        tc.setSettings(t);
+        tc.begin(0);
+        for (int i = 0; i < 2; i++) {
+            v[i].eligible = true; v[i].posState = PosState::VALID; v[i].pos = 1000; v[i].home = 1000; v[i].limit = 15000;
+        }
+    }
+    void run(uint32_t ms) {
+        for (uint32_t e = 0; e < ms; e += 1000) {
+            uint32_t sec = now / 1000;
+            hist[sec % 4000] = v[0].pos;
+            uint32_t back = delayMs / 1000;
+            cs_t felt = sec >= back ? hist[(sec - back) % 4000] : 1000;
+            temp += (heat - cool * (felt - 1000) * 10) / 60.0;
+            Job j[2];
+            uint8_t n = tc.tick(now, true, (int16_t)(temp + 0.5), false, v, j);
+            for (uint8_t k = 0; k < n; k++) {
+                TempControl::WinView& w = v[j[k].window];
+                if (j[k].type == JobType::CLOSE) { w.pos = 0; w.posState = PosState::CLOSED; }
+                else { w.pos = j[k].target; w.posState = PosState::VALID; }
+            }
+            if (n) { jobs++; lastJobMs = now; }
+            now += 1000;
+        }
+    }
+};
+
+// 우리가 연 효과로 오르던 온도가 내려가기 시작하면: 더 열지 않고 주기를 다시 센다
+static void test_trend_hold_after_our_move() {
+    House h;
+    h.temp = 286; h.heat = 6;                 // 더워지는 중
+    h.run(301000);                            // 300초에 첫 판단: 연다
+    CHECK(h.jobs == 1);
+    uint32_t moved = h.lastJobMs;
+    uint16_t rev0 = h.tc.reversalCount();
+    // 연 효과가 90초 뒤부터: 오르던 흐름이 내림으로
+    for (int i = 0; i < 400 && h.tc.reversalCount() == rev0; i++) h.run(1000);
+    CHECK(h.tc.reversalCount() == rev0 + 1);
+    CHECK(h.tc.lastReversalHeld());           // 우리 효과
+    CHECK(h.tc.trend() < 0);
+    CHECK(h.tc.responseCount() == 1);
+    CHECK(h.tc.lastResponseS() >= 90 && h.tc.lastResponseS() <= 300);
+    uint32_t revAt = h.now;
+    CHECK(h.jobs == 1);                        // 역전 때 더 움직이지 않음
+    // 다음 판단은 역전에서 주기만큼 뒤 (움직인 때부터 세지 않음)
+    h.run(299000 - 2000);
+    CHECK(h.lastJobMs == moved);
+    (void)revAt;
+}
+
+// 움직이지 않았는데 흐름이 거꾸로 바뀜(해가 남): 열원 변화는 아직 다루지 않으므로 주기대로 판단
+static void test_trend_outside_change_waits_period() {
+    House h;
+    h.t.periodS = 600; h.tc.setSettings(h.t);
+    h.temp = 284; h.heat = -0.8;              // 불감대 안에서 천천히 내려감 (10분에 0.8도)
+    h.run(610000);                            // 600초 판단: 불감대 안이라 움직이지 않음
+    CHECK(h.jobs == 0);
+    CHECK(h.tc.trend() < 0);
+    h.heat = 12;                              // 해가 남: 빠르게 오름
+    uint16_t rev0 = h.tc.reversalCount();
+    h.run(589000);
+    CHECK(h.tc.reversalCount() == rev0 + 1);
+    CHECK(!h.tc.lastReversalHeld());
+    CHECK(h.jobs == 0);                       // 1200초 주기 전에는 움직이지 않음
+    h.run(2000);
+    CHECK(h.jobs == 1);                       // 주기에 판단
+}
+
+// 효과의 세기: 같은 크기로 열어도 환기가 세면(바람) 크게 잰다. 판단 주기는 설정값 그대로 (2026-11-28)
+static void test_gain_follows_wind() {
+    House calm, windy;
+    calm.temp = windy.temp = 290; calm.heat = windy.heat = 8;
+    windy.cool = calm.cool * 3; windy.delayMs = 40000;
+    calm.run(3 * 3600 * 1000);
+    windy.run(3 * 3600 * 1000);
+    CHECK(calm.tc.gainCount() >= 1 && windy.tc.gainCount() >= 1);
+    CHECK(calm.tc.gain() > 0 && windy.tc.gain() > calm.tc.gain());
+    CHECK(calm.tc.periodMs() == 300000 && windy.tc.periodMs() == 300000);   // 주기 줄이기는 꺼 둠
+
+    House none;                                              // 측정이 없으면 기존 단계 방식
+    CHECK(none.tc.gain() == 0 && none.tc.periodMs() == 300000);
 }
 
 // ------------------------------------------------------------
@@ -773,6 +877,9 @@ int main() {
     RUN(test_error_log);
     RUN(test_sensor_filter);
     RUN(test_temp_control);
+    RUN(test_trend_hold_after_our_move);
+    RUN(test_trend_outside_change_waits_period);
+    RUN(test_gain_follows_wind);
     RUN(test_dispatcher_boot_and_move);
     RUN(test_dispatcher_estop_and_relay);
     RUN(test_dispatcher_temp_lost);

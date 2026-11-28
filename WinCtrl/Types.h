@@ -168,6 +168,16 @@ struct TempStatus {
     uint16_t nextS;        // 다음 판단까지 남은 초 (화면 표시용)
     bool     paused;       // 설정 메뉴나 수동 때문에 멈춤
     bool     manual;       // 수동 (위치 항목을 고름)
+    uint16_t periodS;      // 지금 쓰는 판단 주기 (반응 시간에 따라 줄어듦, 2026-11-28)
+    uint16_t respS;        // 반응 시간 추정 (0 = 아직 모름)
+    uint16_t respLastS;    // 마지막 측정
+    uint16_t respCount;    // 측정 횟수 (켠 뒤)
+    int8_t   trend;        // 온도 흐름 +1 오름, -1 내림, 0 모름
+    uint16_t revCount;     // 흐름 역전 횟수 (켠 뒤)
+    bool     revHeld;      // 마지막 역전: 참 = 우리 효과라 기다림, 거짓 = 바깥 변화(아직 아무것도 안 함)
+    int32_t  gain;         // 효과의 세기: 1cs 움직일 때 기울기가 바뀌는 양 (분당 0.0001도, 0 = 모름)
+    uint16_t gainCount;    // 효과 측정 횟수 (켠 뒤)
+    bool     settling;     // 지난 움직임의 효과를 기다리는 중
 };
 
 // 제어 쪽에서 생긴 에러를 화면 태스크가 에러 저장에 넣도록 넘기는 고리
