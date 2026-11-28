@@ -665,6 +665,21 @@ void Ui::statsTick(uint32_t now) {
     smp.pos2 = posPct(_st.win[1]);
     smp.gain = _st.temp.gain;
     smp.warn = _log.hasUnacked();
+    // 창이 이미 끝이라 원하는 온도로 갈 수 없음: 추운데 움직일 수 있는 창이 모두 CLOSE,
+    // 더운데 모두 상한 리밋(없으면 top). 움직일 수 있는 창이 없어도 같다
+    {
+        int16_t err = (int16_t)(smp.temp - smp.setT);
+        bool cold = err < -smp.deadband, hot = err > smp.deadband;
+        bool allEnd = true;
+        for (uint8_t i = 0; i < 2; i++) {
+            const WindowStatus& w = _st.win[i];
+            if (!_s.win[i].link || !w.configured || w.state == WinState::FAULT || w.state == WinState::ESTOP) continue;
+            bool atBottom = w.posState == PosState::CLOSED;
+            bool atTop = w.state == WinState::LIMIT || (w.posState == PosState::VALID && w.pos >= w.limit);
+            if (!((cold && atBottom) || (hot && atTop))) allEnd = false;
+        }
+        smp.saturated = (cold || hot) && allEnd;
+    }
     _stats.second(smp);
 
     bool rtc;
@@ -746,7 +761,7 @@ bool Ui::serialCommand(const char* line) {
         uint32_t n = *arg ? (uint32_t)strtoul(arg, nullptr, 10) : 144;
         Serial.printf("[stats] %lu of %lu summaries (10 min each)\n", (unsigned long)(n < Store::statsCount() ? n : Store::statsCount()),
                       (unsigned long)Store::statsCount());
-        Serial.println("time,setC,avgC,rmsC,inBand%,overC,underC,moves,motorS,pos1,pos2,gain,active%,warn");
+        Serial.println("time,setC,avgC,rmsC,inBand%,overC,underC,moves,motorS,pos1,pos2,gain,active%,warn,atEnd");
         DumpCtx ctx = { this, 0 };
         Store::statsEach(n, [](const StatSummary& x, void* c) {
             const Ui* ui = ((DumpCtx*)c)->ui;
@@ -759,7 +774,7 @@ bool Ui::serialCommand(const char* line) {
             printFixed(x.maxUnder, 10); Serial.printf(",%u,%u,", x.moves, x.motorS);
             if (x.pos1 == 0xFFFF) Serial.printf("-,"); else Serial.printf("%u.%u,", x.pos1 / 10, x.pos1 % 10);
             if (x.pos2 == 0xFFFF) Serial.printf("-,"); else Serial.printf("%u.%u,", x.pos2 / 10, x.pos2 % 10);
-            Serial.printf("%lu,%u,%u\n", (unsigned long)x.gain10 * 10, x.activePct, x.flags & 1);
+            Serial.printf("%lu,%u,%u,%u\n", (unsigned long)x.gain10 * 10, x.activePct, x.flags & 1, (x.flags >> 2) & 1);
         }, &ctx);
         Serial.println("[stats] end");
         return true;

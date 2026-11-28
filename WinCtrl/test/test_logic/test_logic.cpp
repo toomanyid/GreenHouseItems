@@ -832,6 +832,14 @@ static void test_stats() {
     CHECK(sum.gain10 == 64 && sum.activePct == 85 && sum.flags == 2);
     st.finish(12945, false, sum);                          // 빈 구간
     CHECK(sum.activePct == 0 && sum.rmsC == 0 && sum.moves == 0 && sum.flags == 0);
+    // 창이 끝에 있어 갈 수 없는 동안은 세지 않는다 (추운데 모두 CLOSE)
+    x.active = true; x.temp = 250; x.saturated = true;
+    for (int i = 0; i < 100; i++) st.second(x);
+    x.temp = 281; x.saturated = false;
+    for (int i = 0; i < 100; i++) st.second(x);
+    st.finish(13545, true, sum);
+    CHECK(sum.activePct == 50 && sum.inBand == 100 && sum.rmsC == 10 && sum.maxUnder == 1);
+    CHECK(sum.flags == (2 | 4));
     CHECK(StatMath::isqrt(0) == 0 && StatMath::isqrt(99) == 9 && StatMath::isqrt(100) == 10);
 
     // 30초 원본 고리: 가득 차면 가장 오래된 것부터 덮어쓴다

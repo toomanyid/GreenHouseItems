@@ -16,7 +16,9 @@ uint32_t isqrt(uint64_t v) {
 }
 }
 
-void Stats::second(const StatSample& s) {
+void Stats::second(const StatSample& in) {
+    StatSample s = in;
+    if (s.active && s.saturated) { s.active = false; _sat = true; }   // 끝에 있어 갈 수 없는 동안은 세지 않는다
     int16_t err = (int16_t)(s.temp - s.setT);
     bool band = s.active && (err <= s.deadband && err >= -s.deadband);
     Cell c = { err, (uint8_t)((s.active ? 1 : 0) | (band ? 2 : 0) | (s.moving ? 4 : 0) | (s.moveStart ? 8 : 0)) };
@@ -87,13 +89,14 @@ void Stats::finish(uint32_t time, bool rtc, StatSummary& o) {
     o.pos2 = _nP2 ? (uint16_t)(_sumP2 / _nP2) : 0xFFFF;
     o.gain10 = (uint16_t)(_lastGain / 10 > 65535 ? 65535 : _lastGain / 10);
     o.activePct = (uint8_t)(_secs ? _active * 100u / _secs : 0);
-    o.flags = (uint8_t)((_warn ? 1 : 0) | (rtc ? 2 : 0));
+    o.flags = (uint8_t)((_warn ? 1 : 0) | (rtc ? 2 : 0) | (_sat ? 4 : 0));
     _secs = _active = _inBand = _moving = _moves = 0;
     _sumSq = _sumT = 0;
     _maxOver = _maxUnder = 0;
     _sumP1 = _sumP2 = 0;
     _nP1 = _nP2 = 0;
     _warn = false;
+    _sat = false;
 }
 
 void RawLog::add(const StatRaw& r) {

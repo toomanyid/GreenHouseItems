@@ -7,7 +7,8 @@
 //   - 최근 10분 (계속 밀려감): 2004 LCD 아래 두 줄에 보인다
 //   - 10분 요약 (24바이트): 플래시에 남긴다 (Store)
 //   - 30초 원본 (16바이트): 메모리(PSRAM)에 60일 (RawLog)
-//  성적은 자동이고 온도 센서가 정상인 동안만 센다.
+//  성적은 자동이고 온도 센서가 정상인 동안만 센다. 창이 이미 끝에 있어 원하는 온도로 갈 수 없는 동안
+//  (추운데 모두 CLOSE, 더운데 모두 상한 리밋이나 top)도 뺀다 (2026-11-28).
 // ============================================================
 
 struct StatSample {          // 1초 한 칸
@@ -20,6 +21,7 @@ struct StatSample {          // 1초 한 칸
     int16_t pos1, pos2;      // 0.1%, 모르면 -1
     int32_t gain;            // 효과의 세기 (0 = 모름)
     bool    warn;            // 미확인 경고가 있음
+    bool    saturated;       // 창이 끝에 있어 원하는 온도로 갈 수 없음 (성적에서 뺌)
 };
 
 #pragma pack(push, 1)
@@ -35,8 +37,8 @@ struct StatSummary {         // 10분 요약 (플래시, 24바이트)
     uint16_t motorS;         // 모터가 돈 초
     uint16_t pos1, pos2;     // 평균 위치 0.1% (0xFFFF = 모름)
     uint16_t gain10;         // 효과의 세기 ÷ 10
-    uint8_t  activePct;      // 성적을 센 시간 비율 % (자동이고 센서 정상)
-    uint8_t  flags;          // 비트 0: 경고가 있었음, 비트 1: RTC 시각
+    uint8_t  activePct;      // 성적을 센 시간 비율 % (자동이고 센서 정상, 끝에 있어 뺀 시간 제외)
+    uint8_t  flags;          // 비트 0: 경고가 있었음, 비트 1: RTC 시각, 비트 2: 끝에 있어 뺀 시간이 있었음
 };
 struct StatRaw {             // 30초 원본 (메모리, 16바이트)
     uint32_t time;
@@ -81,6 +83,7 @@ private:
     int16_t  _lastSet = 0;
     int32_t  _lastGain = 0;
     bool     _warn = false;
+    bool     _sat = false;
 };
 
 // 30초 원본을 담는 고리 (밖에서 준 버퍼에)
