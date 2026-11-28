@@ -185,6 +185,10 @@ struct Status {
     bool         estop;
     bool         relayUse;     // MC 있음 설정
     bool         relayFault;   // MC 경고가 한 번이라도 남 (운전은 막지 않음)
+    bool         relayOn;      // MC FET A, B가 모두 켜짐 (디버그 표시용)
+    int32_t      relayMv;      // MC 뒤 전압 (디버그 표시용)
+    int32_t      estopMv;      // 비상 버튼 뒤 전압 (디버그 표시용)
+    int32_t      tempUa;       // 온도 센서 전류 (디버그 표시용)
     uint32_t     eventCount;   // 지금까지 넣은 이벤트 수
     ErrorEvent   events[EVENT_RING_SIZE];
 };

@@ -125,6 +125,8 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
 
     if (!_bootDone) bootStep(in);
     _lastTempUa = in.tempUa;
+    _lastRelayMv = in.relayMv;
+    _lastEstopMv = in.estopMv;
     if (_relayRestart) { _relayRestart = false; _relay.begin(now); }
 
     // 비상정지: 버튼 뒤 전압이 없음
@@ -156,6 +158,7 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
         out.fetB = _relay.fetB();
         ready = ready && _relay.ready();
     }
+    _lastRelayOn = out.fetA && out.fetB;
     for (uint8_t i = 0; i < 2; i++) {
         bool run = ready && wo[i].dir != 0;
         out.dir[i] = run ? wo[i].dir : 0;
@@ -216,6 +219,10 @@ void Dispatcher::fillStatus(Status& st) const {
     st.estop = _estop.value();
     st.relayUse = _s.relayUse;
     st.relayFault = relayFault();
+    st.relayOn = _lastRelayOn;
+    st.relayMv = _lastRelayMv;
+    st.estopMv = _lastEstopMv;
+    st.tempUa = _lastTempUa;
     st.eventCount = _eventCount;
     for (uint8_t i = 0; i < EVENT_RING_SIZE; i++) st.events[i] = _events[i];
 }

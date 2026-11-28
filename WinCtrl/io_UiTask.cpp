@@ -11,6 +11,7 @@
 #include "dev_Encoder.h"
 #include "dev_Buzzer.h"
 #include "pins.h"
+#include "io_Debug.h"
 
 namespace {
 
@@ -144,6 +145,10 @@ private:
     bool hasTemp() const { return _st.temp.found; }
     bool anyMoving() const;
     bool anyFault() const;
+    void debugLog(uint32_t now);
+    Status   _dbgPrev = {};
+    bool     _dbgHave = false;
+    uint32_t _dbgLastSt = 0;
     Cause warnFor(uint8_t w) const;
     bool errorScreen() const;
     bool alarmOn() const;
@@ -392,10 +397,9 @@ void Ui::pushSettings(uint8_t timesMask, uint8_t calMask) {
     if (!_settingsPending) { _pendTimes = 0; _pendCal = 0; }
 }
 
-#ifdef WINCTRL_BENCH
-// 책상 시험용 진단 로그: 창 상태, 측정 단계, 전류를 시리얼에 찍는다 (읽기만 하고 동작은 바꾸지 않는다).
+// 디버그 3단계: 창 상태, 측정 단계, 전류를 시리얼에 찍는다 (읽기만 하고 동작은 바꾸지 않는다).
 // 바뀔 때마다 한 줄, 움직이는 동안 0.5초마다 한 줄.
-static void benchLog(const Status& st, uint32_t now) {
+static void detailLog(const Status& st, uint32_t now) {
     static const char* STATE[] = { "IDLE", "HOMING", "MOVING", "CLOSING", "REV_WAIT", "CAL", "LIMIT", "FAULT", "ESTOP" };
     static const char* PHASE[] = { "-", "DOWN_FIRST", "WAIT_1", "UP", "WAIT_2", "DOWN", "DONE", "FAILED" };
     static const char* CAUSE[] = { "-", "OVERLOAD", "NO_CURRENT", "LIMIT_HIT", "DRIVER", "TIMEOUT", "SENSOR", "RELAY",
@@ -425,7 +429,88 @@ static void benchLog(const Status& st, uint32_t now) {
                           (long)w.cal.iAvgUp, (long)w.cal.iAvgDn, w.cal.sensorMode);
     }
 }
-#endif
+
+// 디버그 로그 (io_Debug.h의 단계). 상태 복사본을 지난 것과 비교해 바뀐 것만 찍는다
+static const char* stateName(WinState s) {
+    static const char* N[] = { "IDLE", "HOMING", "MOVING", "CLOSING", "REV_WAIT", "CAL", "LIMIT", "FAULT", "ESTOP" };
+    uint8_t i = (uint8_t)s;
+    return i < 9 ? N[i] : "?";
+}
+static void posText(char* out, const WindowStatus& w, cs_t pos) {
+    // 위치: 백분율(화면과 같음)과 내부 초
+    if (w.posState == PosState::UNKNOWN) { strcpy(out, "--.-"); return; }
+    if (w.posState == PosState::CLOSED || pos <= 0) { strcpy(out, "CLOSE"); return; }
+    char b[8];
+    Fmt::pct4(b, SettingsRules::pctFromPos(pos, w.home, w.maxPos));
+    snprintf(out, 20, "%s(%ld.%02lds)", b[0] == ' ' ? b + 1 : b, (long)(pos / 100), (long)(pos % 100));
+}
+
+// 0.1 단위 정수를 "-0.5"처럼 (부호는 음수만), 0.01 단위를 "+0.05"처럼
+static const char* tenths(char* out, int32_t v) {
+    int32_t a = v < 0 ? -v : v;
+    snprintf(out, 12, "%s%ld.%ld", v < 0 ? "-" : "", (long)(a / 10), (long)(a % 10));
+    return out;
+}
+static const char* hundredths(char* out, int32_t v) {
+    int32_t a = v < 0 ? -v : v;
+    snprintf(out, 12, "%c%ld.%02ld", v < 0 ? '-' : '+', (long)(a / 100), (long)(a % 100));
+    return out;
+}
+
+void Ui::debugLog(uint32_t now) {
+    const Status& p = _dbgPrev;
+    const Status& c = _st;
+    if (_dbgHave) {
+        // 1단계: 비상정지
+        if (c.estop != p.estop) Serial.printf("[estop] %s\n", c.estop ? "PRESSED" : "released");
+        if (Dbg::on(Dbg::ACTION)) {
+            for (uint8_t i = 0; i < 2; i++) {
+                const WindowStatus& a = p.win[i];
+                const WindowStatus& b = c.win[i];
+                if (a.state == b.state && a.target == b.target && a.posState == b.posState) continue;
+                char pos[20], tgt[20];
+                posText(pos, b, b.pos);
+                if (b.target < 0) strcpy(tgt, "CLOSE");
+                else posText(tgt, b, b.target);
+                bool moving = isMovingState(b.state);
+                Serial.printf("[win%u] %s -> %s  pos %s%s%s%s\n", (unsigned)(i + 1), stateName(a.state), stateName(b.state),
+                              pos, moving ? "  > " : "", moving ? tgt : "",
+                              b.state == WinState::FAULT ? (b.fault == Cause::OVERLOAD ? "  OVERLOAD" : "  DRIVER") : "");
+            }
+            if (c.relayOn != p.relayOn)
+                Serial.printf("[mc] %s  %ldmV\n", c.relayOn ? "ON" : "OFF", (long)c.relayMv);
+            // 온도 판단: 다음 판단까지 남은 초가 다시 커지면 방금 판단한 것
+            if (c.temp.found && c.temp.nextS > p.temp.nextS && !c.temp.paused) {
+                char t0[12], t1[12], t2[12], t3[12];
+                Serial.printf("[temp] decide: now %sC pred %sC set %sC slope %sC/min\n",
+                              tenths(t0, c.temp.temp), tenths(t1, c.temp.predicted),
+                              tenths(t2, _s.temp.setT), hundredths(t3, c.temp.slope));
+            }
+            if (c.temp.found && c.temp.valid != p.temp.valid)
+                Serial.printf("[temp] sensor %s\n", c.temp.valid ? "OK" : "LOST");
+        }
+    }
+    // 3단계: 1초마다 요약, 움직이는 동안 창 줄
+    if (Dbg::on(Dbg::DETAIL)) {
+        if (now - _dbgLastSt >= 1000) {
+            _dbgLastSt = now;
+            char p0[20], p1[20];
+            posText(p0, c.win[0], c.win[0].pos);
+            posText(p1, c.win[1], c.win[1].pos);
+            char tt[12];
+            Serial.printf("[st] %lus W1 %s %s %ldmA | W2 %s %s %ldmA | T %s%sC %ldua next %us%s | MC %s %ldmV | ES %ldmV\n",
+                          (unsigned long)(now / 1000),
+                          stateName(c.win[0].state), p0, (long)c.win[0].currentMa,
+                          stateName(c.win[1].state), p1, (long)c.win[1].currentMa,
+                          c.temp.valid ? "" : "(no)", tenths(tt, c.temp.temp), (long)c.tempUa,
+                          (unsigned)c.temp.nextS, c.temp.manual ? " MAN" : (c.temp.paused ? " PAUSE" : ""),
+                          c.relayUse ? (c.relayOn ? "ON" : "off") : "NONE", (long)c.relayMv, (long)c.estopMv);
+        }
+        detailLog(c, now);
+    }
+    _dbgPrev = c;
+    _dbgHave = true;
+}
 
 // ============================================================
 //  주기
@@ -434,10 +519,9 @@ void Ui::tick() {
     uint32_t now = millis();
     ControlTask::getStatus(_st);
     ControlTask::setUnackedError(_log.hasUnacked());
-#ifdef WINCTRL_BENCH
-    benchLog(_st, now);
-#endif
     consumeEvents(now);
+    Dbg::poll();
+    debugLog(now);
 
     // 보내지 못한 잡과 설정은 다시 보낸다
     if (_jobPending && ControlTask::sendJob(_pendingJob)) _jobPending = false;
@@ -484,7 +568,7 @@ void Ui::tick() {
     uint8_t mode = active ? 1 : (alarm ? 2 : 0);
     if (mode != _blMode) {
         _blMode = mode;
-        Serial.printf("[lcd] backlight %s\n", mode == 1 ? "ON" : (mode == 2 ? "BLINK (fault/error/estop)" : "OFF"));
+        if (Dbg::on(Dbg::ACTION)) Serial.printf("[lcd] backlight %s\n", mode == 1 ? "ON" : (mode == 2 ? "BLINK (fault/error/estop)" : "OFF"));
     }
     _lcd.setBacklight(_backlight);
     sendMode();
@@ -508,6 +592,8 @@ void Ui::consumeEvents(uint32_t now) {
     for (uint32_t k = from; k < count; k++) {
         const ErrorEvent& e = _st.events[k % EVENT_RING_SIZE];
         if (_log.add(e.window, e.cause, _boot, now / 1000)) _logDirty = true;
+        Serial.printf("[%s] %s %s\n", isStopCause(e.cause) ? "fault" : "warn",
+                      e.window == 0 ? "ALL" : (e.window == 1 ? "W1" : "W2"), Fmt::faultLong(e.cause));
         // 경고는 동작을 시도할 때마다 알림음을 한 번 낸다. 기록은 미확인이 이미 있으면 늘지 않는다 (2026-11-28)
         if (e.cause != Cause::NONE && !isStopCause(e.cause)) _snd.play(Snd::ALERT);
     }
@@ -541,16 +627,16 @@ void Ui::readInput(uint32_t now) {
 
     // 시리얼 확인용: 엔코더 한 칸과 누름/뗌을 찍는다
     for (uint8_t i = 0; i < n; i++)
-        Serial.printf("[enc] step %s (edges %lu) t=%lu\n", steps[i].dir > 0 ? "CW +1" : "CCW -1",
+        if (Dbg::on(Dbg::ACTION)) Serial.printf("[enc] step %s (edges %lu) t=%lu\n", steps[i].dir > 0 ? "CW +1" : "CCW -1",
                       (unsigned long)_enc.edgeCount(), (unsigned long)steps[i].ms);
-    if (down != _btnDown) Serial.printf("[enc] button %s\n", down ? "DOWN" : "UP");
+    if (down != _btnDown) if (Dbg::on(Dbg::ACTION)) Serial.printf("[enc] button %s\n", down ? "DOWN" : "UP");
 
     if (n || down != _btnDown) {
         bool wasDark = _dark;
         _lastInputMs = now;
         if (wasDark) {
             // 꺼진 화면의 첫 조작은 화면만 켠다. 깜빡이는 동안은 꺼진 것으로 보지 않는다
-            Serial.println("[lcd] backlight ON (input)");
+            if (Dbg::on(Dbg::ACTION)) Serial.println("[lcd] backlight ON (input)");
             _dark = false;
             _backlight = true;
             _lcd.setBacklight(true);
@@ -598,10 +684,10 @@ void Ui::onPressTurn(const EncStep* st, uint8_t n, uint32_t now) {
                 selectItem(Item::SYNC, true, now);
                 _pressSwitched = true;
                 _snd.play(Snd::COMMIT);
-                Serial.println("[enc] press+turn +: MANUAL (1+2)");
+                if (Dbg::on(Dbg::ACTION)) Serial.println("[enc] press+turn +: MANUAL (1+2)");
             } else {
                 _snd.play(Snd::BUMP);
-                Serial.println("[enc] press+turn +: already manual");
+                if (Dbg::on(Dbg::ACTION)) Serial.println("[enc] press+turn +: already manual");
             }
         } else if (_pressTurnSum <= -(int8_t)PRESS_TURN_STEPS) {
             _pressTurnSum = 0;
@@ -609,7 +695,7 @@ void Ui::onPressTurn(const EncStep* st, uint8_t n, uint32_t now) {
                 selectItem(Item::TEMP, true, now);
                 _pressSwitched = true;
                 _snd.play(Snd::COMMIT);
-                Serial.println("[enc] press+turn -: AUTO (temp)");
+                if (Dbg::on(Dbg::ACTION)) Serial.println("[enc] press+turn -: AUTO (temp)");
             } else {
                 _snd.play(Snd::BUMP);
                 Serial.println(hasTemp() ? "[enc] press+turn -: already auto" : "[enc] press+turn -: no temp sensor");
@@ -683,13 +769,13 @@ void Ui::onSteps(const EncStep* st, uint8_t n, uint32_t now) {
         _jobPending = false;
         // 자동이었으면 자동 그대로 둔다. 다음 판단 주기에 온도에 따라 다시 움직일 수 있다 (2026-11-26 변경)
         _snd.play(Snd::CANCEL);
-        Serial.println("[enc] zigzag: STOP ALL");
+        if (Dbg::on(Dbg::ACTION)) Serial.println("[enc] zigzag: STOP ALL");
     } else if (zig && _screen == Screen::MAIN && (_editTemp || _editPos)) {
         cancelEdit();
         _snd.play(Snd::CANCEL);
-        Serial.println("[enc] zigzag: input cancelled");
+        if (Dbg::on(Dbg::ACTION)) Serial.println("[enc] zigzag: input cancelled");
     } else if (zig) {
-        Serial.println("[enc] zigzag (nothing to cancel)");
+        if (Dbg::on(Dbg::ACTION)) Serial.println("[enc] zigzag (nothing to cancel)");
     }
 }
 
@@ -725,7 +811,10 @@ void Ui::sendMode() {
     int8_t manual = _item == Item::TEMP ? 0 : 1;
     if (manual == _modeSent) return;
     Alert a = { manual ? AlertType::MODE_MANUAL : AlertType::MODE_AUTO, 0xFF, Cause::NONE };
-    if (ControlTask::sendAlert(a)) _modeSent = manual;      // 못 보냈으면 다음 주기에 다시
+    if (ControlTask::sendAlert(a)) {
+        _modeSent = manual;
+        Serial.printf("[mode] %s\n", manual ? "MANUAL" : "AUTO");
+    }                                                       // 못 보냈으면 다음 주기에 다시
 }
 
 // 항목을 바꾼다. user가 true면 사용자가 고른 것이라 저장한다
@@ -1358,6 +1447,12 @@ void Ui::saveField(uint32_t now) {
     _s = tmp;
     if (!Store::saveSettings(_s)) _snd.play(Snd::ERROR_BEEP);
     else _snd.play(Snd::COMMIT);
+    {
+        char v[16];
+        fmtField(v, _idx, _val);
+        const char* pre = _list == ListKind::WIN ? (_listWin == 0 ? "W1 " : "W2 ") : "";
+        Serial.printf("[set] saved %s%s = %s\n", pre, field(_idx).name, v);
+    }
     pushSettings(times, 0);
     _lv = Level::LIST;
 }
@@ -1383,6 +1478,8 @@ void Ui::saveCalibration(uint32_t now) {
     Store::saveSettings(_s);
     pushSettings((uint8_t)(1 << w), (uint8_t)(1 << w));
     _snd.play(Snd::COMMIT);
+    Serial.printf("[set] saved W%u calibration: up %ld cs, down %ld cs, Imax up %ld dn %ld mA\n",
+                  (unsigned)(w + 1), (long)ws.upTime, (long)ws.downTime, (long)ws.iMaxUp, (long)ws.iMaxDn);
     // 측정은 리밋을 풀어야 시작하므로 끝나면 다시 넣으라고 안내한다
     message("SAVED", "SET LIMIT AGAIN", now, true, Level::TOP);
 }

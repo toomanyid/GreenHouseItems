@@ -75,6 +75,9 @@ private:
     bool        _manual = false;     // 위치 항목을 고름 (온도제어 멈춤)
     bool        _relayRestart = false;   // MC 없음 → 있음으로 바뀜: 다음 주기에 자가 점검부터
     int32_t     _lastTempUa = 0;         // 마지막으로 읽은 온도 센서 전류 (설정에서 켤 때 판단)
+    int32_t     _lastRelayMv = 0;        // 디버그 표시용으로 마지막 입력과 출력을 둔다
+    int32_t     _lastEstopMv = 0;
+    bool        _lastRelayOn = false;
     bool        _unacked = false;
 
     uint32_t    _eventCount = 0;

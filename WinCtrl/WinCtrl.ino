@@ -5,6 +5,7 @@
 //
 //  setup()은 저장된 값을 읽고 두 태스크를 띄운다. loop()는 쓰지 않는다.
 // ============================================================
+#include "io_Debug.h"
 #include <Arduino.h>
 #include "config.h"
 #include "pins.h"
@@ -73,11 +74,12 @@ void setup() {
     ControlTask::begin(model, s);
     UiTask::begin(model, s, s_bootLog, boot, __DATE__, __TIME__);   // 컴파일 날짜와 시각
     Serial.println("[boot] tasks started");
+    Serial.println("[dbg] level 1 (BASIC). commands: d1 basic, d2 action, d3 detail, d? help");
 }
 
 void loop() {
     // 할 일은 두 태스크가 한다. 여기서는 살아 있다는 표시만 5초마다 찍는다.
-    Serial.printf("[alive] %lus  enc A(41)=%d B(42)=%d SW(47)=%d\n", (unsigned long)(millis() / 1000),
+    if (Dbg::on(Dbg::ACTION)) Serial.printf("[alive] %lus  enc A(41)=%d B(42)=%d SW(47)=%d\n", (unsigned long)(millis() / 1000),
                   digitalRead(PIN_ENC_A), digitalRead(PIN_ENC_B), digitalRead(PIN_ENC_SW));
     delay(5000);
 }

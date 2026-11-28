@@ -1,5 +1,5 @@
 #!/bin/sh
-# PC에서 2층과 3층 로직을 시험한다. 필요한 것: g++ (C++11 이상)
+# PC에서 2층과 3층 로직, 화면 글자, 디버그 명령을 시험한다. 필요한 것: g++ (C++11 이상)
 set -e
 cd "$(dirname "$0")/.."
 OUT=$(mktemp -d)
@@ -11,4 +11,6 @@ if [ -f test/test_logic/test_logic.cpp ]; then
   $CXX $FLAGS test/test_logic/test_logic.cpp app_TempControl.cpp ErrorLog.cpp io_Format.cpp Settings.cpp app_Dispatcher.cpp ctl_Window.cpp ctl_Safety.cpp -o "$OUT/test_logic"
   "$OUT/test_logic"
 fi
+$CXX $FLAGS -Itest/stubs test/test_debug/test_debug.cpp io_Debug.cpp -o "$OUT/test_debug"
+"$OUT/test_debug"
 rm -rf "$OUT"
