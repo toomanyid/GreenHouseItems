@@ -493,6 +493,9 @@ void Ui::debugLog(uint32_t now) {
             if (c.temp.revCount != p.temp.revCount)
                 Serial.printf("[temp] trend reversed to %s: %s\n", c.temp.trend > 0 ? "RISING" : "FALLING",
                               c.temp.revHeld ? "effect of our move, hold and restart period" : "outside change (sun/cloud), no action yet");
+            if (c.temp.gainCount != p.temp.gainCount)
+                Serial.printf("[temp] effect measured: gain %ld (0.0001C/min per cs, n %u)\n", (long)c.temp.gain,
+                              (unsigned)c.temp.gainCount);
             if (c.temp.respCount != p.temp.respCount)
                 Serial.printf("[temp] response %us (estimate %us, period %us)\n", (unsigned)c.temp.respLastS,
                               (unsigned)c.temp.respS, (unsigned)c.temp.periodS);
@@ -1783,10 +1786,14 @@ void Ui::drawMenu() {
             Fmt::amps(d, w.overloadDnMa);
             snprintf(l1, sizeof(l1), "%s ^%s v%s", m, u, d);
         } else if (_page == 4) {
-            // 반응 시간과 지금 쓰는 판단 주기 (2026-11-28): "R 250s T 300s", 모르면 "R ---"
-            header(l0, "DIAG RESP", 5, pages);
-            if (_st.temp.respS) snprintf(l1, sizeof(l1), "R %us T %us", (unsigned)_st.temp.respS, (unsigned)_st.temp.periodS);
-            else snprintf(l1, sizeof(l1), "R ---  T %us", (unsigned)_st.temp.periodS);
+            // 효과의 세기와 반응 시간 (2026-11-28): "G 640  R 250s", 모르면 "G ---"
+            header(l0, "DIAG EFFECT", 5, pages);
+            char g[8], r[8];
+            if (_st.temp.gain > 0) snprintf(g, sizeof(g), "%ld", (long)(_st.temp.gain > 99999 ? 99999 : _st.temp.gain));
+            else strcpy(g, "---");
+            if (_st.temp.respS) snprintf(r, sizeof(r), "%us", (unsigned)_st.temp.respS);
+            else strcpy(r, "---");
+            snprintf(l1, sizeof(l1), "G %-5s R %s%s", g, r, _st.temp.settling ? " W" : "");
         } else {
             header(l0, "DIAG TEMP", 4, pages);
             char t[8];

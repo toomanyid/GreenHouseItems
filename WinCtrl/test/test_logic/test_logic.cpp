@@ -231,9 +231,13 @@ static void test_temp_control() {
     n = tc.tick(t, true, 300, false, v, jobs);
     CHECK(n == 2);
     CHECK(jobs[0].type == JobType::MOVE && jobs[0].target == 1500 && jobs[0].source == JobSource::TEMP_CONTROL);
-    // 같은 방향으로 이어지면 커진다: 5.0 → 7.5
+    // 효과를 기다리는 동안(온도가 그대로) 같은 쪽으로 더 움직이지 않는다 (2026-11-28)
     v[0].pos = v[1].pos = 1500;
     t += 60000;
+    CHECK(tc.tick(t, true, 300, false, v, jobs) == 0);
+    CHECK(tc.settling());
+    // 10분이 지나도 효과가 없으면 다시 움직이고, 같은 방향이 이어지면 커진다: 5.0 → 7.5
+    t += TEMP_EFFECT_WAIT_MS;
     n = tc.tick(t, true, 300, false, v, jobs);
     CHECK(n == 2 && jobs[0].target == 2250);
     // 메뉴 중에는 멈춤, 나오면 처음 크기
@@ -251,9 +255,9 @@ static void test_temp_control() {
     t += 60000;
     n = tc.tick(t, true, 260, false, v, jobs);
     CHECK(n == 2 && jobs[0].type == JobType::MOVE && jobs[0].target == 2000);
-    // home에서 한 번 더 낮으면 CLOSE
+    // home에서 한 번 더 낮으면 CLOSE (닫은 효과를 기다린 뒤)
     v[0].pos = v[1].pos = 2000;
-    t += 60000;
+    t += TEMP_EFFECT_WAIT_MS;
     n = tc.tick(t, true, 260, false, v, jobs);
     CHECK(n == 2 && jobs[0].type == JobType::CLOSE);
     v[0].home = v[1].home = 0;
@@ -381,29 +385,19 @@ static void test_trend_outside_change_waits_period() {
     CHECK(h.jobs == 1);                       // 주기에 판단
 }
 
-// 반응이 빠르면(바람) 판단 주기가 짧아지고, 느리면 설정값 그대로
-static void test_period_follows_response() {
-    House fast;
-    fast.delayMs = 40000; fast.temp = 290; fast.heat = 8;
-    fast.run(3 * 3600 * 1000);
-    CHECK(fast.tc.responseCount() >= 2);
-    uint16_t r = fast.tc.responseS();
-    CHECK(r > 0 && r < 300);
-    CHECK(fast.tc.periodMs() < 300000);                     // 설정 300초보다 짧아짐
-    CHECK(fast.tc.periodMs() >= (uint32_t)TEMP_PERIOD_MIN_S * 1000);
-    CHECK(fast.tc.periodMs() == (r * 1200u < 30000u ? 30000u : r * 1200u) || fast.tc.periodMs() == 300000);
+// 효과의 세기: 같은 크기로 열어도 환기가 세면(바람) 크게 잰다. 판단 주기는 설정값 그대로 (2026-11-28)
+static void test_gain_follows_wind() {
+    House calm, windy;
+    calm.temp = windy.temp = 290; calm.heat = windy.heat = 8;
+    windy.cool = calm.cool * 3; windy.delayMs = 40000;
+    calm.run(3 * 3600 * 1000);
+    windy.run(3 * 3600 * 1000);
+    CHECK(calm.tc.gainCount() >= 1 && windy.tc.gainCount() >= 1);
+    CHECK(calm.tc.gain() > 0 && windy.tc.gain() > calm.tc.gain());
+    CHECK(calm.tc.periodMs() == 300000 && windy.tc.periodMs() == 300000);   // 주기 줄이기는 꺼 둠
 
-    House none;                                              // 측정이 없으면 설정값
-    CHECK(none.tc.responseS() == 0 && none.tc.periodMs() == 300000);
-
-    // 손으로 움직이면 그 측정은 버린다
-    House m;
-    m.temp = 286;
-    m.run(301000);
-    CHECK(m.jobs == 1);
-    m.tc.resetStep();
-    m.run(600000);
-    CHECK(m.tc.responseCount() == 0 || m.tc.lastResponseS() < 400);
+    House none;                                              // 측정이 없으면 기존 단계 방식
+    CHECK(none.tc.gain() == 0 && none.tc.periodMs() == 300000);
 }
 
 // ------------------------------------------------------------
@@ -885,7 +879,7 @@ int main() {
     RUN(test_temp_control);
     RUN(test_trend_hold_after_our_move);
     RUN(test_trend_outside_change_waits_period);
-    RUN(test_period_follows_response);
+    RUN(test_gain_follows_wind);
     RUN(test_dispatcher_boot_and_move);
     RUN(test_dispatcher_estop_and_relay);
     RUN(test_dispatcher_temp_lost);

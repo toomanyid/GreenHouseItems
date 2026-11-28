@@ -20,8 +20,45 @@ void TempControl::begin(uint32_t now) {
     resetStep();
 }
 
+int32_t TempControl::gain() const {
+    int32_t v[TEMP_GAIN_KEEP];
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < _gainN; i++)
+        if (_nowMs - _gainAt[i] <= TEMP_RESP_EXPIRE_MS) v[n++] = _gain[i];
+    if (n == 0) return 0;
+    for (uint8_t i = 1; i < n; i++)
+        for (uint8_t j = i; j > 0 && v[j - 1] > v[j]; j--) { int32_t t = v[j]; v[j] = v[j - 1]; v[j - 1] = t; }
+    return n == 2 ? v[1] : v[n / 2];        // 둘이면 큰 쪽(단계를 작게), 셋이면 가운데
+}
+
+void TempControl::addGain(int32_t g, uint32_t now) {
+    for (uint8_t i = TEMP_GAIN_KEEP - 1; i > 0; i--) { _gain[i] = _gain[i - 1]; _gainAt[i] = _gainAt[i - 1]; }
+    _gain[0] = g;
+    _gainAt[0] = now;
+    if (_gainN < TEMP_GAIN_KEEP) _gainN++;
+    _gainCount++;
+}
+
+// 기록마다(10초) 지난 움직임의 효과를 본다. 노린 쪽으로 바뀐 기울기가 가장 컸던 값을 지나면
+// 효과가 다 나타난 것으로 보고, 그 크기를 움직인 크기로 나눠 효과의 세기로 쓴다
+void TempControl::checkEffect(uint32_t now) {
+    if (!_settling) return;
+    int32_t change = (int32_t)_setDir * (_setSlope - _slope);           // 노린 쪽으로 바뀐 기울기
+    if (change > _setPeak) _setPeak = change;
+    bool passed = change < _setPeak - TEMP_EFFECT_STABLE;              // 가장 컸던 데서 되돌아옴
+    if (now - _setMs >= TEMP_EFFECT_MIN_MS && _setPeak >= TEMP_EFFECT_SLOPE && passed) {
+        if (_setSize > 0) addGain((int32_t)((int64_t)_setPeak * 10000 / _setSize), now);
+        _settling = false;
+    } else if (now - _setMs >= TEMP_EFFECT_WAIT_MS) {
+        if (_setPeak >= TEMP_EFFECT_SLOPE && _setSize > 0)
+            addGain((int32_t)((int64_t)_setPeak * 10000 / _setSize), now);
+        _settling = false;                   // 더 기다리지 않는다
+    }
+}
+
 uint32_t TempControl::periodMs() const {
     uint32_t setMs = (uint32_t)_t.periodS * 1000;
+    if (!TEMP_PERIOD_ADAPT) return setMs;
     uint16_t r = responseS();
     if (r == 0) return setMs;
     uint32_t p = (uint32_t)r * 100 * TEMP_PERIOD_RATE_X10;   // 초 × 1.2 → ms
@@ -151,7 +188,7 @@ uint8_t TempControl::tick(uint32_t now, bool valid, int16_t temp, bool paused,
 
     _slope = computeSlope();
     _pred = (int16_t)(temp + (int32_t)_slope * _t.aheadMin / 10);
-    if (recorded) updateTrend(now, paused);
+    if (recorded) { updateTrend(now, paused); checkEffect(now); }
 
     if (paused) {
         _wasPaused = true;
@@ -174,6 +211,24 @@ uint8_t TempControl::tick(uint32_t now, bool valid, int16_t temp, bool paused,
     if (dir == 0 || dir != _lastDir) _streak = 0;      // 불감대 안이거나 방향이 바뀌면 처음 크기로
     cs_t size = stepSize();
 
+    // 지난 움직임의 효과를 기다리는 동안에는 같은 쪽으로 더 움직이지 않는다
+    bool waitEffect = _settling && dir == _setDir;
+    // 효과의 세기를 알면: 10분 안에 설정 온도로 돌아오는 기울기를 만들 만큼만 움직인다.
+    // 오차가 크면 크게(P), 바람이 세서 효과가 크면 작게 (2026-11-28)
+    int32_t g = gain();
+    bool stepByGain = g > 0 && dir != 0;
+    if (stepByGain) {
+        int32_t want = -(int32_t)(temp - _t.setT) * 10 / TEMP_HORIZON_MIN;   // 0.01도/분
+        int32_t need = dir > 0 ? _slope - want : want - _slope;
+        if (need <= 0) size = 0;                         // 이미 그만큼 따라가는 중: 더 움직이지 않음
+        else {
+            int64_t s = (int64_t)need * 10000 / g;
+            if (s > _t.stepMax) s = _t.stepMax;
+            size = roundStep((cs_t)s);
+            if (size < CS_STEP) size = CS_STEP;
+        }
+    }
+
     uint8_t n = 0;
     bool counted = false;
     for (uint8_t i = 0; i < 2; i++) {
@@ -189,6 +244,8 @@ uint8_t TempControl::tick(uint32_t now, bool valid, int16_t temp, bool paused,
         } else if (v[i].posState == PosState::UNKNOWN) {
             if (dir > 0) { j.type = JobType::MOVE; j.target = v[i].home; make = true; }
             else if (dir < 0) { j.type = JobType::CLOSE; make = true; }
+        } else if (waitEffect || size == 0) {
+            // 효과를 기다리거나 이미 충분히 따라가는 중
         } else if (dir > 0) {
             cs_t t = roundStep(v[i].pos + size);
             if (t > v[i].limit) t = v[i].limit;
@@ -210,6 +267,21 @@ uint8_t TempControl::tick(uint32_t now, bool valid, int16_t temp, bool paused,
     if (counted) {
         if (_streak < 255) _streak++;
         _lastDir = dir;
+    }
+    if (counted) {
+        // 한 단계 움직임: 효과가 나타날 때까지 기다리며 효과의 세기를 잰다
+        cs_t moved = 0;
+        for (uint8_t k = 0; k < n; k++) {
+            const WinView& w = v[jobs[k].window];
+            cs_t d = jobs[k].target > w.pos ? jobs[k].target - w.pos : w.pos - jobs[k].target;
+            if (d > moved) moved = d;
+        }
+        _settling = true;
+        _setDir = dir;
+        _setSlope = _slope;
+        _setPeak = 0;
+        _setSize = moved;
+        _setMs = now;
     }
     if (n > 0) {
         // 이번에 움직인 방향 (CLOSE에서 home으로 가는 것은 엶)

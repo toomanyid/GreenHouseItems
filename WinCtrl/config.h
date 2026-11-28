@@ -149,8 +149,16 @@ const uint32_t TEMP_TREND_HOLD_MS    = 60000; // 그 방향이 1분 이어져야
 const uint32_t TEMP_RESP_MAX_MS      = 900000;   // 창을 움직이고 15분 안에 반응이 없으면 그 측정은 버림
 const uint8_t  TEMP_RESP_KEEP        = 3;        // 최근 측정 몇 개로 반응 시간을 정하나
 const uint32_t TEMP_RESP_EXPIRE_MS   = 7200000;  // 2시간 지난 측정은 버림 (그날 그때의 바람을 따라가게)
-const uint8_t  TEMP_PERIOD_RATE_X10  = 12;       // 판단 주기 = 반응 시간 × 1.2
-const uint16_t TEMP_PERIOD_MIN_S     = 30;       // 판단 주기를 이보다 짧게 줄이지 않음
+const uint8_t  TEMP_PERIOD_RATE_X10  = 12;       // (꺼 둠) 판단 주기 = 반응 시간 × 1.2
+const uint16_t TEMP_PERIOD_MIN_S     = 30;       // (꺼 둠) 판단 주기를 이보다 짧게 줄이지 않음
+const bool     TEMP_PERIOD_ADAPT     = false;    // 반응 시간으로 주기 줄이기: 모형에서 나빠서 끔 (2026-11-28)
+// 효과의 세기로 한 단계 크기 정하기 (2026-11-28, 시험)
+const int16_t  TEMP_EFFECT_SLOPE     = 5;        // 움직인 뒤 기울기가 노린 쪽으로 분당 0.05도 이상 바뀌면 효과가 난 것
+const int16_t  TEMP_EFFECT_STABLE    = 2;        // 한 주기 동안 기울기가 이보다 덜 바뀌면 효과가 다 나타난 것
+const uint32_t TEMP_EFFECT_MIN_MS    = 60000;    // 움직이고 적어도 1분은 지나야 효과를 잰다
+const uint32_t TEMP_EFFECT_WAIT_MS   = 600000;   // 10분 안에 효과가 없으면 기다리지 않는다
+const uint16_t TEMP_HORIZON_MIN      = 10;       // 이 시간 안에 설정 온도로 돌아오는 흐름을 목표로 한다
+const uint8_t  TEMP_GAIN_KEEP        = 3;        // 최근 측정 몇 개로 효과의 세기를 정하나 (가운데값)
 
 // ============================================================
 //  워치독, 에러 저장

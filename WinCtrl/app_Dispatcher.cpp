@@ -221,6 +221,9 @@ void Dispatcher::fillStatus(Status& st) const {
     st.temp.trend = _temp.trend();
     st.temp.revCount = _temp.reversalCount();
     st.temp.revHeld = _temp.lastReversalHeld();
+    st.temp.gain = _temp.gain();
+    st.temp.gainCount = _temp.gainCount();
+    st.temp.settling = _temp.settling();
     st.model = _model;
     st.bootDone = _bootDone;
     st.estop = _estop.value();

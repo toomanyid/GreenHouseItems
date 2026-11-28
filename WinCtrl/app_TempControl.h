@@ -35,7 +35,7 @@ public:
 
     // 모터에 직접 목표를 넣었거나 정지, 고장, 센서 끊김이 있으면 처음 크기로.
     // 그 움직임은 온도제어가 한 것이 아니므로 반응 시간 측정도 버린다
-    void resetStep() { _streak = 0; _lastDir = 0; _pendMove = false; _lastMoveDir = 0; }
+    void resetStep() { _streak = 0; _lastDir = 0; _pendMove = false; _lastMoveDir = 0; _settling = false; }
 
     // 설정 온도가 바뀌면 판단 주기를 기다리지 않고 다음 tick에서 판단한다 (2026-11-26).
     // 멈춤(메뉴, 수동) 중이면 풀린 뒤 첫 tick에서 판단한다
@@ -53,6 +53,10 @@ public:
     // 반응 시간 추정 (초, 0 = 아직 모름), 마지막 측정, 측정 횟수
     uint16_t responseS() const;
     uint16_t lastResponseS() const { return _respLastS; }
+    // 효과의 세기: 1cs 움직일 때 기울기가 바뀌는 양 (분당 0.0001도, 0 = 아직 모름). 바람이 세면 커진다
+    int32_t  gain() const;
+    uint16_t gainCount() const { return _gainCount; }
+    bool     settling() const { return _settling; }
     uint16_t responseCount() const { return _respCount; }
     // 온도 흐름: +1 오름, -1 내림, 0 아직 모름. 역전 횟수와 마지막 역전에서 한 일
     int8_t   trend() const { return _trendDir; }
@@ -65,6 +69,8 @@ private:
     int16_t computeSlope() const;
     void    updateTrend(uint32_t now, bool paused);
     void    addResponse(uint32_t ms, uint32_t now);
+    void    addGain(int32_t g, uint32_t now);
+    void    checkEffect(uint32_t now);
 
     TempSettings _t = {};
     int16_t  _log[TEMP_LOG_SIZE] = {};
@@ -99,4 +105,15 @@ private:
     uint8_t  _respN = 0;
     uint16_t _respLastS = 0;
     uint16_t _respCount = 0;
+    // 효과 기다리기와 효과의 세기
+    bool     _settling = false;
+    int8_t   _setDir = 0;
+    int16_t  _setSlope = 0;       // 움직일 때의 기울기
+    int32_t  _setPeak = 0;        // 노린 쪽으로 바뀐 기울기의 가장 큰 값
+    cs_t     _setSize = 0;        // 움직인 크기
+    uint32_t _setMs = 0;
+    int32_t  _gain[TEMP_GAIN_KEEP] = {};
+    uint32_t _gainAt[TEMP_GAIN_KEEP] = {};
+    uint8_t  _gainN = 0;
+    uint16_t _gainCount = 0;
 };

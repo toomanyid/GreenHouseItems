@@ -1,7 +1,10 @@
 // 개발용 하우스 모형 (가중치, 판정 값을 맞출 때만 쓴다. 펌웨어에 들어가지 않는다)
 //   g++ -std=c++11 -O1 -I. test/sim/house_wind.cpp app_TempControl.cpp Settings.cpp -o /tmp/hw && /tmp/hw
-// 2026-11-28 결과: 고정 주기 300초가 가장 좋았고(RMS 1.2~1.4도), 반응 시간 × 1.2로 주기를 줄이면 나빠졌다(2.3~3.0도).
-// 바람 ×4에서는 주기만 바꿔서는 안 되고 한 단계 크기를 줄여야 한다.
+// 바람이 세면 환기가 세지고(× wind) 효과가 빨리 온다(120초 ÷ wind). 해는 30분마다 ±30% (구름)
+// 2026-11-28 결과 (5시간 중 뒤 4시간, 28도에서 벗어난 RMS / 움직인 횟수):
+//   지금 dev(고정 단계):       60초 2.8~4.1도 / 160~180번, 300초 2.1~3.3도 / 40~60번
+//   효과 기다림 + 효과의 세기: 60초 1.1~1.3도 / 41~86번,  300초 1.1~1.3도 / 26~29번
+//   해가 일정하면 300초에서 0.04~0.38도 / 3~9번. 구름이 있으면 효과의 세기 측정이 섞인다(해는 따로 다룰 것)
 #include <cstdio>
 #include <cmath>
 #include <initializer_list>
@@ -21,7 +24,8 @@ struct H {
     void run(uint32_t ms){ for(uint32_t e=0;e<ms;e+=1000){ uint32_t sec=now/1000; hist[sec%4000]=v[0].pos;
         uint32_t b=delayMs/1000; cs_t f= sec>=b? hist[(sec-b)%4000]:1000;
         double frac = f <= 1000 ? 0 : (f-1000)/14000.0;
-        T += (sun - (leak + vent*frac*wind)*(T-out)) / 60.0;
+        double s2 = sun * (1 + 0.3*sin(now/1800000.0*6.283));
+        T += (s2 - (leak + vent*frac*wind)*(T-out)) / 60.0;
         Job j[2]; uint8_t k=tc.tick(now,true,(int16_t)lround(T*10+noise()),false,v,j);
         for(uint8_t q=0;q<k;q++){auto&w=v[j[q].window]; if(j[q].type==JobType::CLOSE){w.pos=0;w.posState=PosState::CLOSED;} else {w.pos=j[q].target;w.posState=PosState::VALID;}}
         if(k) jobs++;
@@ -31,6 +35,6 @@ struct H {
 int main(){
   for (int p : {60, 300, 600}) for (double w : {1.0, 2.0, 4.0}) {
     H h(w, (uint16_t)p); h.run(5*3600*1000u);
-    printf("T PERIOD %3ds wind x%.0f (delay %3us): RMS %.2fC  %4.1f~%4.1f  moves %3u  used period %3us\n", p, w, h.delayMs/1000, sqrt(h.se/h.n), h.mn, h.mx, h.jobs, (unsigned)(h.tc.periodMs()/1000));
+    printf("T PERIOD %3ds wind x%.0f (delay %3us): RMS %.2fC  %4.1f~%4.1f  moves %3u  gain %ld n %u\n", p, w, h.delayMs/1000, sqrt(h.se/h.n), h.mn, h.mx, h.jobs, (long)h.tc.gain(), h.tc.gainCount());
   }
 }
