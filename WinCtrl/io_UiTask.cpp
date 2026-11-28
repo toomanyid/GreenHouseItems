@@ -29,7 +29,8 @@ enum Fmt_ : uint8_t {
     F_MIN,       // 분 "5min"
     F_MINOFF,    // 분, 0이면 OFF
     F_OFFSET,    // 0.1도 부호 있음
-    F_ONOFF
+    F_ONOFF,
+    F_HAVE       // USED/NONE (MC)
 };
 
 struct FieldDef {
@@ -38,12 +39,12 @@ struct FieldDef {
     uint8_t     fmt;
 };
 
-// 창 설정 10개 (스펙 7절, 2026-11-22). 시간은 bottom 기준: UP bottom→top, DOWN top→bottom, HOME bottom→home
+// 창 설정 9개 (스펙 7절, 2026-11-22. 원점 센서 사용은 2026-11-28에 HARDWARE로 옮김). 시간은 bottom 기준: UP bottom→top, DOWN top→bottom, HOME bottom→home
 const uint8_t CAL_PAGES = 6;    // 측정 결과 장 수
 
 enum WinField : uint8_t {
     W_UP, W_DOWN, W_HOMETIME, W_BACKOFF, W_LIMIT, W_IMAXUP, W_IMAXDN,
-    W_MAXRUN, W_HOMESENS, W_LINK, W_COUNT
+    W_MAXRUN, W_LINK, W_COUNT
 };
 const FieldDef WIN_FIELDS[W_COUNT] = {
     { "UP TIME",   RANGE_TIME_MIN, RANGE_TIME_MAX, CS_STEP, F_TIME },
@@ -54,15 +55,13 @@ const FieldDef WIN_FIELDS[W_COUNT] = {
     { "I MAX UP",  RANGE_IMAX_MIN, RANGE_IMAX_MAX, 100, F_AMPS },
     { "I MAX DN",  RANGE_IMAX_MIN, RANGE_IMAX_MAX, 100, F_AMPS },
     { "MAX RUN",   RANGE_MAXRUN_MIN, RANGE_MAXRUN_MAX, 1, F_MAXRUN },
-    { "HOME SENS", 0, 1, 1, F_SENS },
     { "LINK",      0, 1, 1, F_ONOFF },
 };
 
 enum TempField : uint8_t {
-    T_SENSOR, T_SET, T_DB, T_PERIOD, T_STEP, T_ADD, T_MAX, T_SLOPE, T_AHEAD, T_4, T_20, T_OFFSET, T_COUNT
+    T_SET, T_DB, T_PERIOD, T_STEP, T_ADD, T_MAX, T_SLOPE, T_AHEAD, T_4, T_20, T_OFFSET, T_COUNT
 };
 const FieldDef TEMP_FIELDS[T_COUNT] = {
-    { "T SENSOR",   0, 1, 1, F_SENS },
     { "T SET",      0, 500, 5, F_TEMP },
     { "T DEADBAND", 5, 50, 5, F_TEMP },
     { "T PERIOD",   10, 600, 10, F_SECS },
@@ -76,6 +75,15 @@ const FieldDef TEMP_FIELDS[T_COUNT] = {
     { "T OFFSET",   -50, 50, 1, F_OFFSET },
 };
 
+// 제품 구성 (2026-11-28). 기본 구성은 모두 없음/끔
+enum HwField : uint8_t { HW_MC, HW_HOME1, HW_HOME2, HW_TSENS, HW_COUNT };
+const FieldDef HW_FIELDS[HW_COUNT] = {
+    { "MAIN MC",      0, 1, 1, F_HAVE },
+    { "W1 HOME SENS", 0, 1, 1, F_SENS },
+    { "W2 HOME SENS", 0, 1, 1, F_SENS },
+    { "T SENSOR",     0, 1, 1, F_SENS },
+};
+
 enum SoundField : uint8_t { S_CLICK, S_ALARM, S_COUNT };
 const FieldDef SOUND_FIELDS[S_COUNT] = {
     { "CLICK SOUND", 0, 1, 1, F_ONOFF },
@@ -83,17 +91,19 @@ const FieldDef SOUND_FIELDS[S_COUNT] = {
 };
 
 const char* const TOP_ITEMS[] = {
-    "WINDOW 1", "WINDOW 2", "CALIBRATE", "TEMP CONTROL", "DIAG", "SOUND", "ERROR LOG", "INFO", "EXIT"
+    "HARDWARE", "WINDOW 1", "WINDOW 2", "CALIBRATE", "TEMP CONTROL", "DIAG", "SOUND", "ERROR LOG", "INFO", "EXIT"
 };
-const uint8_t TOP_COUNT = 9;
+const uint8_t TOP_COUNT = 10;
 
-enum class Screen : uint8_t { SPLASH, NOTICE, MAIN, MENU };   // NOTICE: 모터 정보 없음 경고, 누르면 MAIN
+// NOTICE: 켤 때의 경고 화면들. 짧게 누를 때마다 다음 장, 마지막 장에서 누르면 MAIN
+enum class Screen : uint8_t { SPLASH, NOTICE, MAIN, MENU };
+enum NoticePage : uint8_t { NP_MC = Fmt::BASIC_MC, NP_HOME = Fmt::BASIC_HOME, NP_TEMP = Fmt::BASIC_TEMP, NP_MOTOR };
 
 enum class Level : uint8_t {
     TOP, LIST, EDIT, CAL_SELECT, CAL_CONFIRM, CAL_RUN, CAL_RESULT, CAL_SAVE, DIAG, LOG, INFO, MSG
 };
 
-enum class ListKind : uint8_t { WIN, TEMP, SOUND };
+enum class ListKind : uint8_t { WIN, TEMP, SOUND, HW };
 
 // 평소 화면에서 고른 항목이 곧 모드다. 온도는 자동, 나머지는 수동 (스펙 7절)
 enum class Item : uint8_t { TEMP, SYNC, W1, W2 };
@@ -172,6 +182,8 @@ private:
     void drawEstop();
     void drawSplash();
     void drawNotice();
+    void buildNotices();
+    void nextNotice();
 
     Lcd      _lcd;
     Encoder  _enc;
@@ -193,6 +205,10 @@ private:
     uint32_t _startMs = 0;
     bool     _bootSoundDone = false;
     uint8_t  _noticeMask = 0;       // 모터 정보 없음 경고에 보일 창
+    uint8_t  _notice[4] = {};       // 보일 경고 장 (NoticePage)
+    uint8_t  _noticeN = 0;
+    uint8_t  _noticeIdx = 0;
+    bool     _noticeBasic = false;  // 구성 경고를 보임: 다 넘기면 확인을 저장
 
     // 입력 상태
     bool     _btnDown = false;
@@ -421,8 +437,8 @@ void Ui::tick() {
         // 자가 점검에서 문제가 나오면 기다리지 않고 넘어간다
         if (now - _startMs >= SPLASH_MS || _st.relayFault) {
             // 모터 정보가 비어 기본값으로 도는 창이 있으면 누를 때까지 경고를 둔다 (MC 고장이면 고장 화면이 먼저)
-            _noticeMask = (uint8_t)((_st.win[0].defaults ? 1 : 0) | (_st.win[1].defaults ? 2 : 0));
-            _screen = (_noticeMask && !_st.relayFault) ? Screen::NOTICE : Screen::MAIN;
+            buildNotices();
+            _screen = (_noticeN && !_st.relayFault) ? Screen::NOTICE : Screen::MAIN;
         }
     }
     if (!_bootSoundDone && _st.bootDone) {
@@ -592,7 +608,7 @@ void Ui::onPressTurn(const EncStep* st, uint8_t n, uint32_t now) {
 
 void Ui::onShort(uint32_t now) {
     if (_screen == Screen::SPLASH || _st.estop) return;
-    if (_screen == Screen::NOTICE) { _screen = Screen::MAIN; return; }   // 경고 확인
+    if (_screen == Screen::NOTICE) { nextNotice(); return; }   // 경고 확인
     if (_screen == Screen::MAIN) mainShort(now);
     else menuShort(now);
 }
@@ -1039,9 +1055,39 @@ void Ui::drawSplash() {
 #endif
 }
 
+// 켤 때의 경고 (스펙 7절). 기본 구성 경고는 처음 한 번만, 모터 정보 경고는 기본값을 쓰는 동안 매번
+void Ui::buildNotices() {
+    _noticeN = 0;
+    _noticeIdx = 0;
+    _noticeBasic = false;
+    if (!_s.basicAcked) {
+        if (!_s.relayUse) _notice[_noticeN++] = NP_MC;
+        if (!_s.win[0].homeSensAuto || !_s.win[1].homeSensAuto) _notice[_noticeN++] = NP_HOME;
+        if (!_s.temp.sensorAuto) _notice[_noticeN++] = NP_TEMP;
+        _noticeBasic = _noticeN > 0;
+    }
+    _noticeMask = (uint8_t)((_st.win[0].defaults ? 1 : 0) | (_st.win[1].defaults ? 2 : 0));
+    if (_noticeMask) _notice[_noticeN++] = NP_MOTOR;
+}
+
+void Ui::nextNotice() {
+    if (++_noticeIdx < _noticeN) return;
+    _screen = Screen::MAIN;
+    if (_noticeBasic && !_s.basicAcked) {
+        _s.basicAcked = true;
+        Store::saveSettings(_s);
+        pushSettings(0, 0);
+    }
+}
+
 void Ui::drawNotice() {
     char r0[17], r1[17];
-    Fmt::notSetLines(r0, r1, _noticeMask);
+    uint8_t p = _notice[_noticeIdx < _noticeN ? _noticeIdx : 0];
+    if (p == NP_MOTOR) Fmt::notSetLines(r0, r1, _noticeMask);
+    else {
+        uint8_t noHome = (uint8_t)((_s.win[0].homeSensAuto ? 0 : 1) | (_s.win[1].homeSensAuto ? 0 : 2));
+        Fmt::basicLines(r0, r1, p, noHome, _noticeIdx + 1 >= _noticeN);
+    }
     _lcd.setLine(0, r0);
     _lcd.setLine(1, r1);
 }
@@ -1090,6 +1136,7 @@ uint8_t Ui::listCount() const {
     switch (_list) {
     case ListKind::WIN:  return W_COUNT;
     case ListKind::TEMP: return T_COUNT;
+    case ListKind::HW:   return HW_COUNT;
     default:             return S_COUNT;
     }
 }
@@ -1098,6 +1145,7 @@ const FieldDef& Ui::field(uint8_t i) const {
     switch (_list) {
     case ListKind::WIN:  return WIN_FIELDS[i];
     case ListKind::TEMP: return TEMP_FIELDS[i];
+    case ListKind::HW:   return HW_FIELDS[i];
     default:             return SOUND_FIELDS[i];
     }
 }
@@ -1114,14 +1162,12 @@ int32_t Ui::getField(const Settings& s, uint8_t i) const {
         case W_IMAXUP: return w.iMaxUp;
         case W_IMAXDN: return w.iMaxDn;
         case W_MAXRUN: return w.maxRunS;
-        case W_HOMESENS: return w.homeSensAuto ? 1 : 0;
         default: return w.link ? 1 : 0;
         }
     }
     if (_list == ListKind::TEMP) {
         const TempSettings& t = s.temp;
         switch (i) {
-        case T_SENSOR: return t.sensorAuto ? 1 : 0;
         case T_SET: return t.setT;
         case T_DB: return t.deadband;
         case T_PERIOD: return t.periodS;
@@ -1133,6 +1179,14 @@ int32_t Ui::getField(const Settings& s, uint8_t i) const {
         case T_4: return t.t4;
         case T_20: return t.t20;
         default: return t.offset;
+        }
+    }
+    if (_list == ListKind::HW) {
+        switch (i) {
+        case HW_MC: return s.relayUse ? 1 : 0;
+        case HW_HOME1: return s.win[0].homeSensAuto ? 1 : 0;
+        case HW_HOME2: return s.win[1].homeSensAuto ? 1 : 0;
+        default: return s.temp.sensorAuto ? 1 : 0;
         }
     }
     return i == S_CLICK ? (s.clickSound ? 1 : 0) : (s.alarmSound ? 1 : 0);
@@ -1150,7 +1204,6 @@ void Ui::setField(Settings& s, uint8_t i, int32_t v) const {
         case W_IMAXUP: w.iMaxUp = v; break;
         case W_IMAXDN: w.iMaxDn = v; break;
         case W_MAXRUN: w.maxRunS = (int16_t)v; break;
-        case W_HOMESENS: w.homeSensAuto = v != 0; break;
         default: w.link = v != 0; break;
         }
         return;
@@ -1158,7 +1211,6 @@ void Ui::setField(Settings& s, uint8_t i, int32_t v) const {
     if (_list == ListKind::TEMP) {
         TempSettings& t = s.temp;
         switch (i) {
-        case T_SENSOR: t.sensorAuto = v != 0; break;
         case T_SET: t.setT = (int16_t)v; break;
         case T_DB: t.deadband = (int16_t)v; break;
         case T_PERIOD: t.periodS = (uint16_t)v; break;
@@ -1170,6 +1222,15 @@ void Ui::setField(Settings& s, uint8_t i, int32_t v) const {
         case T_4: t.t4 = (int16_t)v; break;
         case T_20: t.t20 = (int16_t)v; break;
         default: t.offset = (int16_t)v; break;
+        }
+        return;
+    }
+    if (_list == ListKind::HW) {
+        switch (i) {
+        case HW_MC: s.relayUse = v != 0; break;
+        case HW_HOME1: s.win[0].homeSensAuto = v != 0; break;
+        case HW_HOME2: s.win[1].homeSensAuto = v != 0; break;
+        default: s.temp.sensorAuto = v != 0; break;
         }
         return;
     }
@@ -1195,9 +1256,9 @@ void Ui::fmtField(char* out, uint8_t i, int32_t v) const {
         break;
     case F_SENS: {
         const char* r;
-        if (_list == ListKind::TEMP) r = _st.temp.found ? "FOUND" : "NONE";
+        if (_list == ListKind::HW && i == HW_TSENS) r = _st.temp.found ? "FOUND" : "NONE";
         else {
-            const WindowStatus& w = _st.win[_listWin];
+            const WindowStatus& w = _st.win[_list == ListKind::HW ? (uint8_t)(i - HW_HOME1) : _listWin];
             r = w.sensorFound ? "FOUND" : (w.sensorAbsent ? "NONE" : "WAIT");   // WAIT: ON이나 하한을 아직 못 봄
         }
         snprintf(out, 16, "%-6s %s", v ? "AUTO" : "OFF", r);
@@ -1222,6 +1283,8 @@ void Ui::fmtField(char* out, uint8_t i, int32_t v) const {
         break;
     case F_OFFSET:
         Fmt::tenthsSigned(b, v); snprintf(out, 16, "%sC", b); break;
+    case F_HAVE:
+        strcpy(out, v ? "USED" : "NONE"); break;
     default:
         strcpy(out, v ? "ON" : "OFF"); break;
     }
@@ -1229,7 +1292,7 @@ void Ui::fmtField(char* out, uint8_t i, int32_t v) const {
 
 int32_t Ui::stepField(uint8_t i, int32_t v, int8_t dir, int32_t mul, bool& bumped) const {
     const FieldDef& f = field(i);
-    if (f.fmt == F_SENS || f.fmt == F_ONOFF) return v ? 0 : 1;
+    if (f.fmt == F_SENS || f.fmt == F_ONOFF || f.fmt == F_HAVE) return v ? 0 : 1;
 
     if (f.fmt == F_PCT) {
         // 1.0~99.9를 0.5씩. 99.9(OFF)에서 내리면 99.5부터
@@ -1259,13 +1322,16 @@ void Ui::saveField(uint32_t now) {
     Settings tmp = _s;
     setField(tmp, _idx, _val);
     uint8_t times = 0;
-    if (_list == ListKind::WIN) {
-        uint8_t w = _listWin;
+    // 원점 센서 사용은 HARDWARE에 있지만 그 창의 시간 값처럼 다룬다
+    bool homeSens = _list == ListKind::HW && (_idx == HW_HOME1 || _idx == HW_HOME2);
+    bool winList = _list == ListKind::WIN;
+    if (winList || homeSens) {
+        uint8_t w = homeSens ? (uint8_t)(_idx - HW_HOME1) : _listWin;
         bool active = sensorActive(w, tmp);
-        bool timeField = _idx == W_UP || _idx == W_DOWN || _idx == W_BACKOFF
-                      || _idx == W_HOMETIME || _idx == W_HOMESENS;
+        bool timeField = homeSens || (winList && (_idx == W_UP || _idx == W_DOWN || _idx == W_BACKOFF
+                                                  || _idx == W_HOMETIME));
         // 센서를 켠 창은 되내림이 바뀌면 원점 시간을 다시 계산해 둔다 (스펙 10절)
-        if (active && (_idx == W_BACKOFF || _idx == W_UP || _idx == W_DOWN || _idx == W_HOMESENS))
+        if (active && (homeSens || (winList && (_idx == W_BACKOFF || _idx == W_UP || _idx == W_DOWN))))
             SettingsRules::recomputeHomeTime(tmp.win[w]);
         if (!SettingsRules::validWindow(tmp.win[w])) {
             _snd.play(Snd::ERROR_BEEP);
@@ -1273,13 +1339,14 @@ void Ui::saveField(uint32_t now) {
             return;
         }
         if (timeField && getField(_s, _idx) != _val) times = (uint8_t)(1 << w);
-    } else if (_list == ListKind::TEMP) {
+    } else if (_list == ListKind::TEMP || _list == ListKind::HW) {
         if (!SettingsRules::validTemp(tmp.temp)) {
             _snd.play(Snd::ERROR_BEEP);
             message("NOT SAVED", "OUT OF RANGE", now, false, Level::EDIT);
             return;
         }
     }
+    if (_list == ListKind::HW) tmp.basicAcked = true;   // 구성을 직접 정했으면 처음 경고는 필요 없다
     _s = tmp;
     if (!Store::saveSettings(_s)) _snd.play(Snd::ERROR_BEEP);
     else _snd.play(Snd::COMMIT);
@@ -1316,14 +1383,15 @@ void Ui::menuShort(uint32_t now) {
     switch (_lv) {
     case Level::TOP:
         switch (_top) {
-        case 0: case 1:
-            _list = ListKind::WIN; _listWin = _top; _idx = 0; _lv = Level::LIST; break;
-        case 2: _idx = 0; _lv = Level::CAL_SELECT; break;
-        case 3: _list = ListKind::TEMP; _idx = 0; _lv = Level::LIST; break;
-        case 4: _page = 0; _lv = Level::DIAG; break;
-        case 5: _list = ListKind::SOUND; _idx = 0; _lv = Level::LIST; break;
-        case 6: _page = 0; _lv = Level::LOG; break;
-        case 7: _page = 0; _lv = Level::INFO; break;
+        case 0: _list = ListKind::HW; _idx = 0; _lv = Level::LIST; break;
+        case 1: case 2:
+            _list = ListKind::WIN; _listWin = (uint8_t)(_top - 1); _idx = 0; _lv = Level::LIST; break;
+        case 3: _idx = 0; _lv = Level::CAL_SELECT; break;
+        case 4: _list = ListKind::TEMP; _idx = 0; _lv = Level::LIST; break;
+        case 5: _page = 0; _lv = Level::DIAG; break;
+        case 6: _list = ListKind::SOUND; _idx = 0; _lv = Level::LIST; break;
+        case 7: _page = 0; _lv = Level::LOG; break;
+        case 8: _page = 0; _lv = Level::INFO; break;
         default: exitMenu(); break;
         }
         break;
@@ -1490,7 +1558,8 @@ void Ui::drawMenu() {
         const char* prefix = _list == ListKind::WIN ? (_listWin == 0 ? "W1 " : "W2 ") : "";
         if (_idx >= listCount()) {
             const char* title = _list == ListKind::WIN ? (_listWin == 0 ? "WINDOW 1" : "WINDOW 2")
-                              : (_list == ListKind::TEMP ? "TEMP CONTROL" : "SOUND");
+                              : (_list == ListKind::TEMP ? "TEMP CONTROL"
+                              : (_list == ListKind::HW ? "HARDWARE" : "SOUND"));
             snprintf(l0, sizeof(l0), "%-16s", title);
             strcpy(l1, "BACK");
             break;

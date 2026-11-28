@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stddef.h>
 #include "Types.h"
 
 // ============================================================
@@ -7,7 +8,12 @@
 //  플래시 저장은 SettingsStore에서 한다.
 // ============================================================
 
-const uint16_t SETTINGS_VERSION = 3;   // 3: 위치를 bottom 기준으로, 겹침/배율/재원점 없앰 (2026-11-22). 예전 것은 읽지 않음
+// 저장 모양 버전. 저장하는 구조체(Settings, WindowSettings, TempSettings)의 모양을 바꾸면 올리고,
+// Settings.cpp의 load()에 옛 모양과 한 버전씩 올리는 단계를 더한다 (2026-11-28).
+//   3: 위치를 bottom 기준으로 (2026-11-22). 2 이하는 읽지 않음
+//   4: MC 사용, 구성 경고 확인 추가 (2026-11-28)
+const uint16_t SETTINGS_VERSION = 4;
+const size_t   SETTINGS_RAW_MAX = 512;    // 저장된 바이트를 읽을 버퍼 크기 (옛 모양 포함)
 
 // 범위 (내부 단위)
 const cs_t    RANGE_TIME_MIN    = 500;     // 상승/하강 5.0~900.0초
@@ -32,6 +38,11 @@ namespace SettingsRules {
     bool validWindow(const WindowSettings& w);
     bool validTemp(const TempSettings& t);
     bool valid(const Settings& s);
+
+    // 저장된 바이트를 지금 모양으로 읽는다. 옛 버전이면 한 버전씩 옮긴다.
+    // 결과: 0 읽을 수 없음(기본값을 써야 함), 1 지금 버전, 2 옛 버전에서 옮김(다시 저장해야 함)
+    enum LoadResult : uint8_t { LOAD_NONE = 0, LOAD_OK = 1, LOAD_MIGRATED = 2 };
+    LoadResult load(const void* raw, size_t n, Settings& out);
 
     // 측정 결과가 허용 범위 안인지
     bool calInRange(const CalStatus& c);

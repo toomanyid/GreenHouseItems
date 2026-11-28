@@ -15,6 +15,7 @@ void Dispatcher::begin(Model model, const Settings& s, uint32_t now) {
     _estop.set(false);
     _tempSum = 0;
     _tempN = 0;
+    _relayRestart = false;
 }
 
 void Dispatcher::pushEvent(uint8_t window, Cause c) {
@@ -25,7 +26,7 @@ void Dispatcher::pushEvent(uint8_t window, Cause c) {
     if (isFaultCause(c)) _temp.resetStep();
 }
 
-// 전원 켤 때: 온도 센서 2초, MC 자가 점검.
+// 전원 켤 때: 온도 센서 2초, MC 자가 점검 (MC 없음 설정이면 하지 않음).
 // 원점 센서 유무는 창이 스스로 정한다 (ON이 들어오거나 OFF인 채로 처음 하한에 닿을 때)
 void Dispatcher::bootStep(const ControlInputs& in) {
     uint32_t elapsed = in.now - _startMs;
@@ -33,7 +34,7 @@ void Dispatcher::bootStep(const ControlInputs& in) {
         _tempSum += in.tempUa;
         _tempN++;
     }
-    if (elapsed >= TEMP_DETECT_MS && _relay.selfTestDone()) {
+    if (elapsed >= TEMP_DETECT_MS && (!_s.relayUse || _relay.selfTestDone())) {
         int32_t avg = _tempN ? (int32_t)(_tempSum / _tempN) : 0;
         _tempFound = _s.temp.sensorAuto && avg >= TEMP_PRESENT_UA;
         _tempValid = _tempFound;
@@ -49,7 +50,7 @@ void Dispatcher::alert(const Alert& a, uint32_t now) {
         _temp.resetStep();
         break;
     case AlertType::CLEAR_FAULT:
-        if (_relay.fault()) break;              // MC 고장은 전원을 다시 켤 때까지 남는다
+        if (relayFault()) break;                // MC 고장은 전원을 다시 켤 때까지 남는다
         for (uint8_t i = 0; i < 2; i++) {
             if (a.window == 0xFF || a.window == i) _w[i].clearFault(now);
         }
@@ -103,6 +104,7 @@ bool Dispatcher::job(const Job& j, uint32_t now) {
 void Dispatcher::settingsChanged(const Settings& s, uint8_t timesMask, uint8_t calMask) {
     bool wasAuto = _s.temp.sensorAuto;
     bool setChanged = s.temp.setT != _s.temp.setT;
+    if (s.relayUse && !_s.relayUse) _relayRestart = true;
     _s = s;
     for (uint8_t i = 0; i < 2; i++) {
         _w[i].settingsChanged(s.win[i], (timesMask >> i) & 1, (calMask >> i) & 1);
@@ -110,7 +112,12 @@ void Dispatcher::settingsChanged(const Settings& s, uint8_t timesMask, uint8_t c
     _temp.setSettings(s.temp);
     if (setChanged) _temp.decideNow();            // 설정 온도를 바꾸면 바로 판단 (2026-11-26)
     if (!s.temp.sensorAuto) _tempFound = false;
-    else if (!wasAuto) _tempFound = _tempValid;   // 끔에서 자동으로: 지금 값이 유효하면 씀
+    else if (!wasAuto && _bootDone) {
+        // 끔에서 자동으로: 지금 읽는 전류로 바로 판단한다 (2026-11-28)
+        _tempFound = _lastTempUa >= TEMP_PRESENT_UA;
+        _tempValid = _tempFound;
+        _tempBadPending = false;
+    }
 }
 
 ControlOutputs Dispatcher::step(const ControlInputs& in) {
@@ -118,6 +125,8 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
     ControlOutputs out = {};
 
     if (!_bootDone) bootStep(in);
+    _lastTempUa = in.tempUa;
+    if (_relayRestart) { _relayRestart = false; _relay.begin(now); }
 
     // 비상정지: 버튼 뒤 전압이 없음
     bool pressed = _estop.update(in.estopMv < ESTOP_OK_MV, now, ESTOP_DEBOUNCE_MS);
@@ -125,13 +134,13 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
     if (pressed) _temp.resetStep();
 
     // MC 고장이면 운전을 막는다
-    if (_relay.fault()) {
+    if (relayFault()) {
         for (uint8_t i = 0; i < 2; i++) _w[i].forceFault(Cause::RELAY, now);
         if (!_relayFaultLogged) { pushEvent(0, Cause::RELAY); _relayFaultLogged = true; }
     }
 
-    // 창 2개의 상태 흐름
-    bool ready = _relay.ready();
+    // 창 2개의 상태 흐름. MC가 없으면 MC를 기다리지 않고 바로 구동한다
+    bool ready = !_s.relayUse || _relay.ready();
     WindowOutputs wo[2];
     for (uint8_t i = 0; i < 2; i++) {
         WindowInputs wi;
@@ -143,14 +152,18 @@ ControlOutputs Dispatcher::step(const ControlInputs& in) {
         wo[i] = _w[i].tick(wi);
     }
 
-    // 주 차단 MC: 두 창이 모두 멈추면 10초 뒤에 뗀다. 비상정지나 고장이면 바로 뗀다
-    bool want = (wo[0].wantRelay || wo[1].wantRelay) && _relay.selfTestDone();
-    bool holdOk = !pressed && _w[0].state() != WinState::FAULT && _w[1].state() != WinState::FAULT;
-    _relay.tick(now, in.relayMv, want, holdOk);
-    out.fetA = _relay.fetA();
-    out.fetB = _relay.fetB();
+    // 주 차단 MC: 두 창이 모두 멈추면 10초 뒤에 뗀다. 비상정지나 고장이면 바로 뗀다.
+    // MC 없음 설정이면 FET를 켜지 않고 MC 뒤 전압도 보지 않는다 (2026-11-28)
+    if (_s.relayUse) {
+        bool want = (wo[0].wantRelay || wo[1].wantRelay) && _relay.selfTestDone();
+        bool holdOk = !pressed && _w[0].state() != WinState::FAULT && _w[1].state() != WinState::FAULT;
+        _relay.tick(now, in.relayMv, want, holdOk);
+        out.fetA = _relay.fetA();
+        out.fetB = _relay.fetB();
+        ready = ready && _relay.ready();
+    }
     for (uint8_t i = 0; i < 2; i++) {
-        bool run = ready && _relay.ready() && wo[i].dir != 0;
+        bool run = ready && wo[i].dir != 0;
         out.dir[i] = run ? wo[i].dir : 0;
         out.duty[i] = run ? wo[i].duty : 0;
     }
@@ -207,14 +220,15 @@ void Dispatcher::fillStatus(Status& st) const {
     st.model = _model;
     st.bootDone = _bootDone;
     st.estop = _estop.value();
-    st.relayFault = _relay.fault();
+    st.relayUse = _s.relayUse;
+    st.relayFault = relayFault();
     st.eventCount = _eventCount;
     for (uint8_t i = 0; i < EVENT_RING_SIZE; i++) st.events[i] = _events[i];
 }
 
 bool Dispatcher::statusLedOn(uint32_t now) const {
     if (!_bootDone) return true;
-    bool err = _unacked || _estop.value() || _relay.fault();
+    bool err = _unacked || _estop.value() || relayFault();
     for (uint8_t i = 0; i < 2; i++) {
         WinState st = _w[i].state();
         if (st == WinState::FAULT || st == WinState::ESTOP) err = true;

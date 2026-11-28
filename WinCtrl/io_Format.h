@@ -40,6 +40,10 @@ char statusChar(const WindowStatus& w);
 // 켤 때 모터 정보 없음 경고 (2026-11-22). mask: 기본값을 쓰는 창 (1 = 창1, 2 = 창2)
 // "MOTOR NOT SET 12" / "USE DEFAULT PUSH"
 void notSetLines(char* r0, char* r1, uint8_t mask);
+    // 처음 켤 때의 기본 구성 경고 한 장 (스펙 7절, 2026-11-28). noHome: 원점 센서가 꺼진 창 (비트 0, 1).
+    // last면 오른쪽 아래에 OK, 아니면 > (다음 장이 있음)
+    enum BasicPage : uint8_t { BASIC_MC, BASIC_HOME, BASIC_TEMP };
+    void basicLines(char* r0, char* r1, uint8_t page, uint8_t noHome, bool last);
 
 // 작은 글씨 화면의 창 한 줄 (스펙 7절). "1 45.0>99.9    ^", "1 ERR OVERLOAD !"
 void smallLine(char* out, const WindowStatus& w, uint8_t num, bool sensorErr);

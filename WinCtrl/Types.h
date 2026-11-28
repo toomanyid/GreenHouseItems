@@ -108,6 +108,9 @@ struct Settings {
     TempSettings   temp;
     bool           clickSound;
     bool           alarmSound;
+    // 제품 구성 (스펙 8절, 2026-11-28). 기본 구성은 MC 없음, 원점 센서 없음, 온도 센서 없음
+    bool           relayUse;     // 주 차단 MC 있음. 끄면 MC 자가 점검과 감시를 하지 않는다
+    bool           basicAcked;   // 처음 켤 때의 구성 경고를 확인함 (한 번만 보인다)
 };
 
 // ============================================================
@@ -178,6 +181,7 @@ struct Status {
     Model        model;
     bool         bootDone;     // 자가 점검과 센서 판단이 끝났는지
     bool         estop;
+    bool         relayUse;     // MC 있음 설정
     bool         relayFault;
     uint32_t     eventCount;   // 지금까지 넣은 이벤트 수
     ErrorEvent   events[EVENT_RING_SIZE];

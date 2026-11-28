@@ -143,6 +143,26 @@ void notSetLines(char* r0, char* r1, uint8_t mask) {
     strcpy(r1, "USE DEFAULT PUSH");
 }
 
+void basicLines(char* r0, char* r1, uint8_t page, uint8_t noHome, bool last) {
+    switch (page) {
+    case BASIC_MC:
+        strcpy(r0, "NO MAIN MC      ");
+        strcpy(r1, "NO POWER CUT    ");
+        break;
+    case BASIC_HOME:
+        if ((noHome & 3) == 3) strcpy(r0, "NO HOME SENSOR  ");
+        else { strcpy(r0, "NO HOME SENS    "); r0[13] = (noHome & 1) ? '1' : '2'; }
+        strcpy(r1, "POS BY TIME     ");
+        break;
+    default:
+        strcpy(r0, "NO TEMP SENSOR  ");
+        strcpy(r1, "MANUAL ONLY     ");
+        break;
+    }
+    if (last) { r1[14] = 'O'; r1[15] = 'K'; }
+    else r1[15] = '>';
+}
+
 void smallLine(char* out, const WindowStatus& w, uint8_t num, bool sensorErr) {
     char b[12];
     blank(out, 16);

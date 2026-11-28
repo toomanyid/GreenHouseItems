@@ -66,6 +66,14 @@ static void test_format_small() {
         Fmt::notSetLines(r0, r1, 3); CHECK(eq(r0, "MOTOR NOT SET 12")); CHECK(eq(r1, "USE DEFAULT PUSH"));
         Fmt::notSetLines(r0, r1, 1); CHECK(eq(r0, "MOTOR NOT SET 1 "));
         Fmt::notSetLines(r0, r1, 2); CHECK(eq(r0, "MOTOR NOT SET  2"));
+        // 기본 구성 경고 (2026-11-28)
+        Fmt::basicLines(r0, r1, Fmt::BASIC_MC, 0, false);
+        CHECK(eq(r0, "NO MAIN MC      ")); CHECK(eq(r1, "NO POWER CUT   >"));
+        Fmt::basicLines(r0, r1, Fmt::BASIC_HOME, 3, false); CHECK(eq(r0, "NO HOME SENSOR  "));
+        CHECK(eq(r1, "POS BY TIME    >"));
+        Fmt::basicLines(r0, r1, Fmt::BASIC_HOME, 2, false); CHECK(eq(r0, "NO HOME SENS 2  "));
+        Fmt::basicLines(r0, r1, Fmt::BASIC_TEMP, 0, true);
+        CHECK(eq(r0, "NO TEMP SENSOR  ")); CHECK(eq(r1, "MANUAL ONLY   OK"));
     }
     Fmt::smallLine(l, w, 2, false); CHECK(eq(l, "2 49.6          "));
     w = idleWin(PosState::CLOSED, 0, 18000);
@@ -340,6 +348,8 @@ static Settings baseSettings() {
         w.iMaxUp = 3250; w.iMaxDn = 3250; w.homeSensAuto = true;
         SettingsRules::recomputeHomeTime(w);
     }
+    s.relayUse = true;            // 이 시험들은 MC와 온도 센서가 있는 구성
+    s.temp.sensorAuto = true;
     return s;
 }
 
@@ -497,6 +507,8 @@ static void test_uisim_plant() {
     Dispatcher d;
     Settings st;
     SettingsRules::defaults(st);                              // 빈 설정: 처음 켠 보드와 같음
+    st.relayUse = true;                                       // UI 시험 빌드는 가짜 MC와 온도 센서가 있음
+    st.temp.sensorAuto = true;
     SimWindow w[2];
     bool fetA = false, fetB = false;
     ControlOutputs out = {};
@@ -536,6 +548,107 @@ static void test_uisim_plant() {
     CHECK_NEAR(status.win[0].cal.upTime, SIM_TRAVEL_CS, 3);
     CHECK(status.win[0].state == WinState::IDLE);
     CHECK(w[0].pos() == 0);
+}
+
+// 기본 구성 (2026-11-28): 설정이 없으면 MC 없음, 원점 센서 없음, 온도 센서 없음
+static void test_basic_config() {
+    Settings st;
+    SettingsRules::defaults(st);
+    CHECK(!st.relayUse && !st.basicAcked);
+    CHECK(!st.win[0].homeSensAuto && !st.win[1].homeSensAuto && !st.temp.sensorAuto);
+    CHECK(SettingsRules::valid(st));
+
+    // MC 없음: 자가 점검 없이 2초 뒤 부팅 끝, FET는 켜지 않고 MC 뒤 전압이 없어도 구동한다
+    DSim s;
+    s.tempUa = 12000;                                          // 센서가 달려 있어도 끔이면 쓰지 않음
+    s.p[0].u = 2000;                                           // 반쯤 열린 창
+    s.d.begin(Model::W50, st, 0);
+    s.run(TEMP_DETECT_MS + 20);
+    CHECK(s.d.bootDone());
+    Status status;
+    s.d.fillStatus(status);
+    CHECK(!status.relayUse && !status.relayFault && !status.temp.found);
+    Job j = {};
+    j.type = JobType::CLOSE; j.source = JobSource::ENCODER; j.window = 0;
+    CHECK(s.d.job(j, s.now));
+    s.run(2000);
+    CHECK(s.out.dir[0] < 0);
+    CHECK(!s.out.fetA && !s.out.fetB);
+    s.run(30000);
+    s.d.fillStatus(status);
+    CHECK(status.win[0].posState == PosState::CLOSED && status.win[0].state == WinState::IDLE);
+    CHECK(status.eventCount == 0);                              // MC 고장이 나지 않음
+
+    // MC 뒤 전압이 떠 있어도(GPIO6 미결선) 고장이 아님
+    DSim f;
+    f.relayStuck = true;
+    f.d.begin(Model::W50, st, 0);
+    f.run(3000);
+    f.d.fillStatus(status);
+    CHECK(!status.relayFault && status.win[0].state != WinState::FAULT);
+
+    // 메뉴에서 온도 센서를 켜면 다시 켜지 않아도 지금 전류로 판단한다
+    Settings on = st;
+    on.temp.sensorAuto = true;
+    s.d.settingsChanged(on, 0, 0);
+    s.run(100);
+    s.d.fillStatus(status);
+    CHECK(status.temp.found && status.temp.valid && status.temp.temp == 250);
+    // 센서가 없는 채로 켜면 없음
+    DSim n;
+    n.d.begin(Model::W50, st, 0);
+    n.run(2500);
+    n.d.settingsChanged(on, 0, 0);
+    n.run(100);
+    n.d.fillStatus(status);
+    CHECK(!status.temp.found);
+
+    // MC 있음으로 바꾸면 자가 점검부터 하고, 그동안은 구동하지 않는다
+    Settings mc = on;
+    mc.relayUse = true;
+    s.d.settingsChanged(mc, 0, 0);
+    j.type = JobType::MOVE; j.window = 1; j.target = 3000;
+    CHECK(s.d.job(j, s.now));
+    s.run(100);
+    CHECK(s.out.dir[1] == 0);
+    s.run(3000);
+    s.d.fillStatus(status);
+    CHECK(status.relayUse && !status.relayFault);
+    CHECK(s.out.fetA && s.out.fetB && s.out.dir[1] != 0);
+}
+
+// 저장 모양 버전 (2026-11-28): 지금 버전은 그대로, 3은 옮겨 읽고, 모르는 버전은 기본값
+static void test_settings_load() {
+    Settings cur = baseSettings();
+    cur.basicAcked = true;
+    Settings out;
+    CHECK(SettingsRules::load(&cur, sizeof(cur), out) == SettingsRules::LOAD_OK);
+    CHECK(out.relayUse && out.basicAcked && out.win[0].upTime == 20000);
+    CHECK(SettingsRules::load(&cur, sizeof(cur) - 1, out) == SettingsRules::LOAD_NONE);
+
+    struct V3 { uint16_t version; WindowSettings win[2]; TempSettings temp; bool clickSound; bool alarmSound; };
+    V3 old;
+    memset(&old, 0, sizeof(old));
+    old.version = 3;
+    old.win[0] = cur.win[0]; old.win[1] = cur.win[1];
+    old.temp = cur.temp; old.temp.setT = 255;
+    old.clickSound = false; old.alarmSound = true;
+    Settings m;
+    CHECK(SettingsRules::load(&old, sizeof(old), m) == SettingsRules::LOAD_MIGRATED);
+    CHECK(m.version == SETTINGS_VERSION);
+    CHECK(m.win[0].upTime == 20000 && m.win[1].homeSensAuto && m.temp.setT == 255 && m.temp.sensorAuto);
+    CHECK(!m.clickSound && m.alarmSound);
+    CHECK(!m.relayUse && !m.basicAcked);                       // 새 항목은 기본 구성 값
+
+    old.version = 2;
+    CHECK(SettingsRules::load(&old, sizeof(old), m) == SettingsRules::LOAD_NONE);
+    Settings newer = cur;
+    newer.version = SETTINGS_VERSION + 1;                      // 이 펌웨어보다 새 모양
+    CHECK(SettingsRules::load(&newer, sizeof(newer), m) == SettingsRules::LOAD_NONE);
+    Settings bad = cur;
+    bad.temp.deadband = 0;                                     // 범위 밖
+    CHECK(SettingsRules::load(&bad, sizeof(bad), m) == SettingsRules::LOAD_NONE);
+    CHECK(SettingsRules::load(nullptr, 0, m) == SettingsRules::LOAD_NONE);
 }
 
 // 상태 LED: 부팅 중 계속 켜짐, 정상은 1초에 0.1초, 에러는 0.2초 간격 (스펙 7절)
@@ -622,6 +735,8 @@ static void test_auto_state() {
 int main() {
     RUN(test_zigzag);
     RUN(test_status_led);
+    RUN(test_basic_config);
+    RUN(test_settings_load);
     RUN(test_auto_state);
     RUN(test_format_values);
     RUN(test_format_small);

@@ -1,5 +1,6 @@
 #include "Settings.h"
 #include "config.h"
+#include <string.h>
 
 namespace SettingsRules {
 
@@ -18,7 +19,7 @@ void defaultsWindow(WindowSettings& w) {
 }
 
 void defaultsTemp(TempSettings& t) {
-    t.sensorAuto = true;
+    t.sensorAuto = false;     // 기본 구성은 온도 센서 없음 (2026-11-28)
     t.setT       = 280;
     t.deadband   = 5;
     t.periodS    = 60;
@@ -39,6 +40,8 @@ void defaults(Settings& s) {
     defaultsTemp(s.temp);
     s.clickSound = true;
     s.alarmSound = true;
+    s.relayUse   = false;     // 기본 구성은 MC 없음 (2026-11-28)
+    s.basicAcked = false;
 }
 
 bool fillModelDefaults(WindowSettings& w, Model m) {
@@ -98,6 +101,56 @@ bool validTemp(const TempSettings& t) {
 
 bool valid(const Settings& s) {
     return validWindow(s.win[0]) && validWindow(s.win[1]) && validTemp(s.temp);
+}
+
+// ------------------------------------------------------------
+//  저장 모양의 역사. 옛 모양은 그때의 구조체를 그대로 얼려 둔다.
+//  WindowSettings나 TempSettings의 모양이 바뀌면 그 옛 모양도 여기에 따로 얼려 둔다.
+// ------------------------------------------------------------
+namespace {
+struct SettingsV3 {                 // 2026-11-22 ~ 2026-11-27
+    uint16_t       version;
+    WindowSettings win[2];          // 3과 4는 같은 모양
+    TempSettings   temp;            // 3과 4는 같은 모양
+    bool           clickSound;
+    bool           alarmSound;
+};
+
+// 3 → 4: 구성 항목이 생김. 새 항목은 기본 구성 값(MC 없음, 경고 확인 전)
+void v3to4(const SettingsV3& o, Settings& s) {
+    defaults(s);
+    s.win[0] = o.win[0];
+    s.win[1] = o.win[1];
+    s.temp = o.temp;
+    s.clickSound = o.clickSound;
+    s.alarmSound = o.alarmSound;
+}
+}  // namespace
+
+static_assert(sizeof(Settings) <= SETTINGS_RAW_MAX && sizeof(SettingsV3) <= SETTINGS_RAW_MAX,
+              "SETTINGS_RAW_MAX를 늘린다");
+
+LoadResult load(const void* raw, size_t n, Settings& out) {
+    if (raw == nullptr || n < sizeof(uint16_t)) return LOAD_NONE;
+    uint16_t ver;
+    memcpy(&ver, raw, sizeof(ver));
+    Settings s;
+    if (ver == SETTINGS_VERSION) {
+        if (n != sizeof(Settings)) return LOAD_NONE;
+        memcpy(&s, raw, sizeof(s));
+    } else if (ver == 3) {
+        if (n != sizeof(SettingsV3)) return LOAD_NONE;
+        SettingsV3 o;
+        memcpy(&o, raw, sizeof(o));
+        v3to4(o, s);
+        // 다음 버전이 생기면: 여기서 4 → 5를 이어 부른다
+    } else {
+        return LOAD_NONE;            // 2 이하, 또는 이 펌웨어보다 새 버전
+    }
+    s.version = SETTINGS_VERSION;
+    if (!valid(s)) return LOAD_NONE;
+    out = s;
+    return ver == SETTINGS_VERSION ? LOAD_OK : LOAD_MIGRATED;
 }
 
 bool calInRange(const CalStatus& c) {
